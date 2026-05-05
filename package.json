@@ -17,8 +17,6 @@
     "date-fns": "^4.1.0",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
-    "firebase": "^12.12.1",
-    "firebase-admin": "^13.8.0",
     "react": "^19.2.4",
     "react-datepicker": "7.5.0",
     "react-dom": "^19.2.4",
@@ -26,7 +24,6 @@
     "tsx": "^4.21.0"
   },
   "devDependencies": {
-    "@firebase/eslint-plugin-security-rules": "^0.0.2",
     "@types/node": "^22.14.0",
     "@types/react-datepicker": "^6.2.0",
     "@vitejs/plugin-react": "^5.0.0",
