@@ -1,149 +1,175 @@
-import { initializeApp } from 'firebase/app';
-import { getAuth, GoogleAuthProvider, signInWithPopup, onAuthStateChanged, signOut, User } from 'firebase/auth';
-import { getFirestore, collection, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, onSnapshot, query } from 'firebase/firestore';
-import firebaseConfig from '../../firebase-applet-config.json';
 import { Player, Period } from '../types';
 
-const app = initializeApp(firebaseConfig);
-export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
-export const auth = getAuth(app);
+let currentPassword = localStorage.getItem('app_password') || '';
 
-// Authentication Logic
-export const loginWithGoogle = async () => {
-  const provider = new GoogleAuthProvider();
-  return signInWithPopup(auth, provider);
+// Internal fetch that attaches password
+async function apiFetch(path: string, options: RequestInit = {}) {
+  const headers = {
+    'Content-Type': 'application/json',
+    'x-api-password': currentPassword,
+    ...options.headers,
+  };
+  const response = await fetch(path, { ...options, headers });
+  if (!response.ok) {
+    throw new Error(`API Error: ${response.status}`);
+  }
+  return response.json();
+}
+
+// Global Auth State
+let authStateListeners: ((isAuthenticated: boolean) => void)[] = [];
+
+export const auth = {
+  get isAuthenticated() {
+    return !!currentPassword;
+  },
+  onAuthStateChanged: (callback: (isAuthenticated: boolean) => void) => {
+    callback(!!currentPassword);
+    authStateListeners.push(callback);
+    return () => {
+      authStateListeners = authStateListeners.filter(cb => cb !== callback);
+    };
+  },
+  loginWithPassword: async (password: string) => {
+    try {
+      const res = await fetch('/api/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password })
+      });
+      if (res.ok) {
+        currentPassword = password;
+        localStorage.setItem('app_password', password);
+        authStateListeners.forEach(cb => cb(true));
+        return true;
+      }
+      return false;
+    } catch {
+      return false;
+    }
+  },
+  signOut: async () => {
+    currentPassword = '';
+    localStorage.removeItem('app_password');
+    authStateListeners.forEach(cb => cb(false));
+  }
 };
 
-export const logout = async () => {
-  return signOut(auth);
-};
-
-export enum OperationType {
-  CREATE = 'create',
-  UPDATE = 'update',
-  DELETE = 'delete',
-  LIST = 'list',
-  GET = 'get',
-  WRITE = 'write',
-}
-
-interface FirestoreErrorInfo {
-  error: string;
-  operationType: OperationType;
-  path: string | null;
-  authInfo: {
-    userId?: string | null;
-    email?: string | null;
-    emailVerified?: boolean | null;
-    isAnonymous?: boolean | null;
-  };
-}
-
-export function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
-  const errInfo: FirestoreErrorInfo = {
-    error: error instanceof Error ? error.message : String(error),
-    authInfo: {
-      userId: auth.currentUser?.uid,
-      email: auth.currentUser?.email,
-      emailVerified: auth.currentUser?.emailVerified,
-      isAnonymous: auth.currentUser?.isAnonymous,
-    },
-    operationType,
-    path
-  };
-  console.error('Firestore Error: ', JSON.stringify(errInfo));
-  throw new Error(JSON.stringify(errInfo));
-}
+export const loginWithPassword = auth.loginWithPassword;
+export const logout = auth.signOut;
 
 export const dbService = {
   async getPlayers(): Promise<Player[]> {
     try {
-      const snap = await getDocs(collection(db, 'players'));
-      return snap.docs.map(d => d.data() as Player);
+      return await apiFetch('/api/players');
     } catch (e) {
-      handleFirestoreError(e, OperationType.GET, 'players');
-      return []; // fallback for typescript compilation, handleFirestoreError throws
+      console.error(e);
+      throw e;
     }
   },
 
   async savePlayer(player: Player): Promise<boolean> {
     try {
       if (!player.id) {
-          player.id = Date.now().toString(); // rudimentary ID if not present
+          player.id = Date.now().toString();
       }
-      await setDoc(doc(db, 'players', player.id), player);
-      console.log('✅ 云端写入确认成功！ID:', player.id);
+      await apiFetch('/api/players', {
+        method: 'POST',
+        body: JSON.stringify(player)
+      });
       return true;
     } catch (e) {
-      handleFirestoreError(e, OperationType.WRITE, `players/${player.id}`);
+       console.error(e);
       return false;
     }
   },
 
   async deletePlayer(playerId: string): Promise<boolean> {
     try {
-      await deleteDoc(doc(db, 'players', playerId));
+      await apiFetch(`/api/players/${playerId}`, { method: 'DELETE' });
       return true;
     } catch (e) {
-      handleFirestoreError(e, OperationType.DELETE, `players/${playerId}`);
+      console.error(e);
       return false;
     }
   },
 
   async getPeriods(): Promise<Period[]> {
     try {
-      const snap = await getDocs(collection(db, 'periods'));
-      return snap.docs.map(d => d.data() as Period);
+      return await apiFetch('/api/periods');
     } catch (e) {
-      handleFirestoreError(e, OperationType.GET, 'periods');
-      return [];
+      console.error(e);
+      throw e;
     }
   },
 
   async savePeriod(period: Period): Promise<boolean> {
     try {
-      await setDoc(doc(db, 'periods', period.id), period);
-      console.log('✅ 云端写入确认成功！ID:', period.id);
+      await apiFetch('/api/periods', {
+        method: 'POST',
+        body: JSON.stringify(period)
+      });
       return true;
     } catch (e) {
-      handleFirestoreError(e, OperationType.WRITE, `periods/${period.id}`);
+      console.error(e);
       return false;
     }
   },
 
   async deletePeriod(periodId: string): Promise<boolean> {
     try {
-      await deleteDoc(doc(db, 'periods', periodId));
+      await apiFetch(`/api/periods/${periodId}`, { method: 'DELETE' });
       return true;
     } catch (e) {
-      handleFirestoreError(e, OperationType.DELETE, `periods/${periodId}`);
+      console.error(e);
       return false;
     }
   },
 
+  // Fake subscription by polling every 5s if we needed exactly the same UI interface
   subscribeToPlayers(callback: (players: Player[]) => void) {
-    if (!auth.currentUser) return () => {};
-    const unsubscribe = onSnapshot(collection(db, 'players'), 
-      (snap) => {
-        callback(snap.docs.map(d => d.data() as Player));
-      }, 
-      (error) => {
-        handleFirestoreError(error, OperationType.LIST, 'players');
-      }
-    );
-    return unsubscribe;
+    if (!auth.isAuthenticated) return () => {};
+    let isActive = true;
+    
+    const fetchIt = async () => {
+       if (!isActive) return;
+       try {
+         const data = await this.getPlayers();
+         if(isActive) callback(data);
+       } catch (e) {
+          console.error("Subscription poll failed", e);
+       }
+    };
+    
+    fetchIt();
+    const intervalId = setInterval(fetchIt, 5000);
+    
+    return () => {
+       isActive = false;
+       clearInterval(intervalId);
+    };
   },
 
   subscribeToPeriods(callback: (periods: Period[]) => void) {
-    if (!auth.currentUser) return () => {};
-    const unsubscribe = onSnapshot(collection(db, 'periods'), 
-      (snap) => {
-        callback(snap.docs.map(d => d.data() as Period));
-      }, 
-      (error) => {
-        handleFirestoreError(error, OperationType.LIST, 'periods');
-      }
-    );
-    return unsubscribe;
+    if (!auth.isAuthenticated) return () => {};
+    let isActive = true;
+    
+    const fetchIt = async () => {
+       if (!isActive) return;
+       try {
+         const data = await this.getPeriods();
+         if(isActive) callback(data);
+       } catch (e) {
+          console.error("Subscription poll failed", e);
+       }
+    };
+    
+    fetchIt();
+    const intervalId = setInterval(fetchIt, 5000);
+    
+    return () => {
+       isActive = false;
+       clearInterval(intervalId);
+    };
   }
 };
