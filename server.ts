@@ -12,7 +12,7 @@ dotenv.config();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const PORT = process.env.PORT || 8080;
+const PORT = 3000;
 const ACCESS_PASSWORD = process.env.VITE_ADMIN_PASSWORD || process.env.VITE_APP_PASSWORD || process.env.APP_PASSWORD || 'cainiao';
 
 async function startServer() {
@@ -62,11 +62,26 @@ async function startServer() {
   };
 
   apiRouter.post('/login', (req, res) => {
-    if (req.body && (req.body.password === ACCESS_PASSWORD || req.body.password === 'cainiao')) {
+    console.log('[Auth] Login attempt...');
+    const { password } = req.body || {};
+    const isValid = (password === ACCESS_PASSWORD || password === 'cainiao');
+    console.log(`[Auth] Login result: ${isValid ? 'Success' : 'Failure'}`);
+    
+    if (isValid) {
       res.status(200).json({ success: true });
     } else {
-      res.status(401).json({ error: 'Unauthorized' });
+      res.status(401).json({ error: 'Invalid password' });
     }
+  });
+
+  apiRouter.get('/config_check', (req, res) => {
+    res.json({
+      url_set: !!url,
+      token_set: !!authToken,
+      pwd_set: !!ACCESS_PASSWORD,
+      node_env: process.env.NODE_ENV,
+      port: PORT
+    });
   });
 
   // --- Players ---
