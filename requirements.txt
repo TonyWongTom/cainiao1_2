@@ -1,0 +1,4 @@
+libsql-client
+flask-cors
+gunicorn
+flask
