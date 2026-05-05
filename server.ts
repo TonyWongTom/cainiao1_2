@@ -151,15 +151,15 @@ async function startServer() {
 
       // Fetch Sessions
       try {
-        const sessionsRes = await dbClient.execute("SELECT id, cycle_id, date, players, extraCourtCost FROM sessions");
+        const sessionsRes = await dbClient.execute("SELECT id, cycle_id, session_date, attendees, extra_court_fee FROM sessions");
         for (const row of sessionsRes.rows) {
           const cId = row.cycle_id as string;
           if (cyclesMap[cId]) {
             cyclesMap[cId].sessions.push({
               id: String(row.id || ''),
-              date: row.date,
-              players: row.players ? JSON.parse(row.players as string) : [],
-              extraCourtCost: Number(row.extraCourtCost) || 0
+              date: row.session_date,
+              players: row.attendees ? JSON.parse(row.attendees as string) : [],
+              extraCourtCost: Number(row.extra_court_fee) || 0
             });
           }
         }
@@ -215,7 +215,7 @@ async function startServer() {
       stmts.push({ sql: "DELETE FROM sessions WHERE cycle_id = ?", args: [cycleId] });
       for (const session of data.sessions || []) {
         stmts.push({
-          sql: `INSERT INTO sessions (id, cycle_id, date, players, extraCourtCost) VALUES (?, ?, ?, ?, ?)`,
+          sql: `INSERT INTO sessions (id, cycle_id, session_date, attendees, extra_court_fee) VALUES (?, ?, ?, ?, ?)`,
           args: [session.id, cycleId, session.date || '', JSON.stringify(session.players || []), Number(session.extraCourtCost) || 0]
         });
       }
@@ -258,8 +258,8 @@ async function startServer() {
       
       const sql = `
         WITH json_players AS (
-            SELECT cycle_id, extraCourtCost, json_each.value AS player_id 
-            FROM sessions, json_each(sessions.players)
+            SELECT cycle_id, extra_court_fee, json_each.value AS player_id 
+            FROM sessions, json_each(sessions.attendees)
             WHERE cycle_id = ?
         ),
         player_fees AS (
@@ -283,7 +283,7 @@ async function startServer() {
             SELECT 
                 courtCost, 
                 json_array_length(funderIds) as funder_count,
-                (SELECT coalesce(sum(extraCourtCost), 0) FROM sessions WHERE cycle_id = ?) as total_extra
+                (SELECT coalesce(sum(extra_court_fee), 0) FROM sessions WHERE cycle_id = ?) as total_extra
             FROM cycles 
             WHERE id = ?
         )
