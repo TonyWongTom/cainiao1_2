@@ -100,7 +100,7 @@ const MainApp: React.FC = () => {
             <div className="flex flex-col items-center justify-center">
               <h1 className="text-xl font-black flex items-center">
                 <span className="mr-2">🏸</span>
-                菜鸟基地小帮手 <span className="text-[10px] text-gray-400 font-normal ml-2">v1.0.3</span>
+                菜鸟基地小帮手 <span className="text-[10px] text-gray-400 font-normal ml-2">v1.0.4</span>
               </h1>
               <div className="flex items-center gap-1.5 mt-0.5 cursor-pointer active:scale-95 transition-transform" onClick={() => refreshData()}>
                 <div className={`w-1.5 h-1.5 rounded-full ${isLoading ? 'bg-amber-400 animate-pulse' : 'bg-emerald-500'}`}></div>

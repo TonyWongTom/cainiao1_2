@@ -2,6 +2,8 @@
 import React from 'react';
 
 export const DEFAULT_SESSION_FEE = 25;
+export const DEFAULT_MONTHLY_FEE = 180;
+export const DEFAULT_HALF_MONTHLY_FEE = 100;
 
 export const INITIAL_FUNDERS: any[] = [];
 

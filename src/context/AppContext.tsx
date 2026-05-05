@@ -119,7 +119,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         }
         
         // Update local state ONLY after successful DB operations
-        setPlayersState(nextPlayers);
+        // Force explicit re-pulling from backend to prevent stale data
+        await fetchFromDB();
         setNotification({ 
           message: "人员更新成功", 
           type: 'success' 
@@ -155,7 +156,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         }
         
         // Update local state ONLY after successful DB operations
-        setPeriodsState(nextPeriods);
+        // Force explicit re-pulling from backend to prevent stale data
+        await fetchFromDB();
         setNotification({ 
           message: "结算信息更新成功", 
           type: 'success' 

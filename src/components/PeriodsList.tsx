@@ -3,7 +3,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import DatePicker, { registerLocale } from 'react-datepicker';
 import { zhCN } from 'date-fns/locale';
 import { Period, Player, Session, PlayerType } from '../types';
-import { Icons, DEFAULT_SESSION_FEE } from '../constants';
+import { Icons, DEFAULT_SESSION_FEE, DEFAULT_MONTHLY_FEE, DEFAULT_HALF_MONTHLY_FEE } from '../constants';
 import { formatDateChinese } from '../utils/dateUtils';
 import { useAppContext } from '../context/AppContext';
 
@@ -39,7 +39,7 @@ const PeriodsList: React.FC<PeriodsListProps> = () => {
     playerConfigs: Array.isArray(players) ? players.map(p => ({
       playerId: p.id,
       type: PlayerType.PER_SESSION,
-      fee: 25
+      fee: DEFAULT_SESSION_FEE
     })) : []
   };
 
@@ -383,7 +383,7 @@ const PeriodsList: React.FC<PeriodsListProps> = () => {
                 const config = periodFormData.playerConfigs?.find(c => c.playerId === p.id) || {
                   playerId: p.id,
                   type: PlayerType.PER_SESSION,
-                  fee: 25
+                  fee: DEFAULT_SESSION_FEE
                 };
                 
                 const updateConfig = (updates: Partial<{type: PlayerType, fee: number}>) => {
@@ -395,7 +395,7 @@ const PeriodsList: React.FC<PeriodsListProps> = () => {
                     if (existingIndex > -1) {
                       newConfigs[existingIndex] = { ...newConfigs[existingIndex], ...updates };
                     } else {
-                      newConfigs.push({ playerId: p.id, type: PlayerType.PER_SESSION, fee: 25, ...updates });
+                      newConfigs.push({ playerId: p.id, type: PlayerType.PER_SESSION, fee: DEFAULT_SESSION_FEE, ...updates });
                     }
                     return { ...prev, playerConfigs: newConfigs };
                   });
@@ -409,7 +409,10 @@ const PeriodsList: React.FC<PeriodsListProps> = () => {
                         {[PlayerType.MONTHLY, PlayerType.HALF_MONTHLY, PlayerType.PER_SESSION].map(type => (
                           <button
                             key={type}
-                            onClick={() => updateConfig({ type })}
+                            onClick={() => {
+                              const defaultFee = type === PlayerType.PER_SESSION ? DEFAULT_SESSION_FEE : type === PlayerType.MONTHLY ? DEFAULT_MONTHLY_FEE : type === PlayerType.HALF_MONTHLY ? DEFAULT_HALF_MONTHLY_FEE : 0;
+                              updateConfig({ type, fee: defaultFee });
+                            }}
                             className={`text-[9px] px-2 py-1 rounded-lg font-black transition-colors ${config.type === type ? 'bg-blue-600 text-white' : 'bg-gray-50 text-gray-400'}`}
                           >
                             {type}
@@ -602,7 +605,7 @@ const PeriodsList: React.FC<PeriodsListProps> = () => {
                   <div>
                     <div className="flex justify-between items-center mb-2 px-1">
                       <p className="text-[10px] font-black text-emerald-800/80 uppercase tracking-widest">👑 本期集资名单</p>
-                      <button onClick={(e) => { e.stopPropagation(); setEditingPeriodId(period.id); setPeriodFormData({ ...period, playerConfigs: players.map(p => period.playerConfigs?.find(c => c.playerId === p.id) || { playerId: p.id, type: PlayerType.PER_SESSION, fee: 25 }) }); }} className="text-[9px] text-emerald-900 font-black px-2 py-1 bg-white/30 backdrop-blur-md rounded-lg">修改配置</button>
+                      <button onClick={(e) => { e.stopPropagation(); setEditingPeriodId(period.id); setPeriodFormData({ ...period, playerConfigs: players.map(p => period.playerConfigs?.find(c => c.playerId === p.id) || { playerId: p.id, type: PlayerType.PER_SESSION, fee: DEFAULT_SESSION_FEE }) }); }} className="text-[9px] text-emerald-900 font-black px-2 py-1 bg-white/30 backdrop-blur-md rounded-lg">修改配置</button>
                     </div>
                     <div className="flex flex-wrap gap-1.5 p-3 bg-white/20 backdrop-blur-md rounded-2xl border border-white/30 shadow-sm">
                       {Array.isArray(period.funderIds) && period.funderIds.map(fid => (
@@ -660,12 +663,17 @@ const PeriodsList: React.FC<PeriodsListProps> = () => {
                                 </button>
                              </div>
                           </div>
-                          <div className="flex flex-wrap gap-1">
-                            {Array.isArray(session.attendees) && session.attendees.map(a => (
-                              <span key={a.playerId} className="text-[9px] bg-white/20 backdrop-blur-md text-emerald-900 px-2 py-0.5 rounded border border-white/30">
-                                {players.find(pl => pl.id === a.playerId)?.name} {(!a.fee || Number(a.fee) === 0) ? '(0)' : `(¥${a.fee})`}
-                              </span>
-                            ))}
+                          <div className="flex justify-between items-end mt-2">
+                            <div className="flex flex-wrap gap-1 flex-1 pr-2">
+                              {Array.isArray(session.attendees) && session.attendees.map(a => (
+                                <span key={a.playerId} className="text-[9px] bg-white/20 backdrop-blur-md text-emerald-900 px-2 py-0.5 rounded border border-white/30">
+                                  {players.find(pl => pl.id === a.playerId)?.name} {(!a.fee || Number(a.fee) === 0) ? '(0)' : `(¥${a.fee})`}
+                                </span>
+                              ))}
+                            </div>
+                            <div className="text-[10px] text-emerald-800/60 font-black shrink-0">
+                              共 {(session.attendees || []).length} 人
+                            </div>
                           </div>
                         </div>
                       ))}

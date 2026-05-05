@@ -65,6 +65,15 @@ async function startServer() {
 
   const apiRouter = express.Router();
 
+  // Disable caching for all API routes
+  apiRouter.use((req, res, next) => {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+    res.setHeader('Surrogate-Control', 'no-store');
+    next();
+  });
+
   const authMiddleware = (req: express.Request, res: express.Response, next: express.NextFunction) => {
     if (req.headers['x-api-password'] === ACCESS_PASSWORD || req.headers['x-api-password'] === 'cainiao') return next();
     res.status(401).json({ error: 'Unauthorized' });

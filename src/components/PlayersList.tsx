@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Player, PlayerType, Period } from '../types';
-import { Icons, DEFAULT_SESSION_FEE } from '../constants';
+import { Icons, DEFAULT_SESSION_FEE, DEFAULT_MONTHLY_FEE, DEFAULT_HALF_MONTHLY_FEE } from '../constants';
 import { useAppContext } from '../context/AppContext';
 
 interface PlayersListProps {
@@ -53,7 +53,7 @@ const PlayersList: React.FC<PlayersListProps> = () => {
         id: Date.now().toString(),
         name: formData.name.trim(),
         type: formData.type as PlayerType || PlayerType.PER_SESSION,
-        defaultFee: formData.defaultFee !== undefined ? formData.defaultFee : (formData.type === PlayerType.PER_SESSION ? DEFAULT_SESSION_FEE : 0),
+        defaultFee: formData.defaultFee !== undefined ? formData.defaultFee : (formData.type === PlayerType.PER_SESSION ? DEFAULT_SESSION_FEE : formData.type === PlayerType.MONTHLY ? DEFAULT_MONTHLY_FEE : formData.type === PlayerType.HALF_MONTHLY ? DEFAULT_HALF_MONTHLY_FEE : 0),
         isFunder: !!formData.isFunder
       };
       setPlayers(prev => [...prev, newPlayer]);
@@ -188,7 +188,7 @@ const PlayersList: React.FC<PlayersListProps> = () => {
               value={formData.type} 
               onChange={e => {
                 const type = e.target.value as PlayerType;
-                const fee = type === PlayerType.PER_SESSION ? DEFAULT_SESSION_FEE : (formData.defaultFee || 0);
+                const fee = type === PlayerType.PER_SESSION ? DEFAULT_SESSION_FEE : type === PlayerType.MONTHLY ? DEFAULT_MONTHLY_FEE : type === PlayerType.HALF_MONTHLY ? DEFAULT_HALF_MONTHLY_FEE : (formData.defaultFee || 0);
                 setFormData({ ...formData, type, defaultFee: fee });
               }} 
               className="w-full border border-gray-200 rounded-lg p-2 text-sm bg-gray-50 outline-none font-bold"
