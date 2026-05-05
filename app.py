@@ -87,7 +87,12 @@ def get_players():
         client.close()
         return jsonify(players)
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        err_msg = str(e)
+        print(f"DEBUG_DB_ERROR (get_players): {err_msg}")
+        # 如果表不存在，返回空列表，不抛 500
+        if "no such table" in err_msg.lower():
+            return jsonify([])
+        return jsonify({"error": err_msg}), 500
 
 @app.route('/api/players', methods=['POST'])
 def save_player():
@@ -114,6 +119,7 @@ def save_player():
         client.close()
         return jsonify({"success": True, "id": data['id']}), 201
     except Exception as e:
+        print(f"DEBUG_DB_ERROR (save_player): {str(e)}")
         return jsonify({"error": str(e)}), 500
 
 @app.route('/api/players/<player_id>', methods=['DELETE'])
@@ -124,6 +130,7 @@ def delete_player(player_id):
         client.close()
         return jsonify({"success": True})
     except Exception as e:
+        print(f"DEBUG_DB_ERROR (delete_player): {str(e)}")
         return jsonify({"error": str(e)}), 500
 
 # --- 周期与股东、身份配置、活动记录组合端点 ---
@@ -131,37 +138,60 @@ def delete_player(player_id):
 def get_periods():
     try:
         client = get_db()
-        cycles_result = client.execute("SELECT id, name, startDate, endDate, courtCost, funderIds FROM cycles")
         cycles = {}
-        for row in cycles_result.rows:
-            cycles[row[0]] = {
-                "id": row[0], "name": row[1], "startDate": row[2], "endDate": row[3],
-                "courtCost": float(row[4]) if row[4] is not None else 0,
-                "funderIds": json.loads(row[5]) if row[5] else [],
-                "sessions": [], "playerConfigs": []
-            }
         
-        sessions_result = client.execute("SELECT id, cycle_id, date, players, extraCourtCost FROM sessions")
-        for row in sessions_result.rows:
-            cycle_id = row[1]
-            if cycle_id in cycles:
-                cycles[cycle_id]["sessions"].append({
-                    "id": row[0], "date": row[2],
-                    "players": json.loads(row[3]) if row[3] else [],
-                    "extraCourtCost": float(row[4]) if row[4] is not None else 0
-                })
-        
-        configs_result = client.execute("SELECT cycle_id, player_id, type, has_paid_base FROM member_cycle_configs")
-        for row in configs_result.rows:
-            cycle_id = row[0]
-            if cycle_id in cycles:
-                cycles[cycle_id]["playerConfigs"].append({
-                    "playerId": row[1], "type": row[2], "hasPaidBase": bool(row[3])
-                })
+        # 处理 cycles 表
+        try:
+            cycles_result = client.execute("SELECT id, name, startDate, endDate, courtCost, funderIds FROM cycles")
+            for row in cycles_result.rows:
+                cycles[row[0]] = {
+                    "id": row[0], "name": row[1], "startDate": row[2], "endDate": row[3],
+                    "courtCost": float(row[4]) if row[4] is not None else 0,
+                    "funderIds": json.loads(row[5]) if row[5] else [],
+                    "sessions": [], "playerConfigs": []
+                }
+        except Exception as e:
+            print(f"DEBUG_DB_ERROR (fetch cycles): {str(e)}")
+            if "no such table" not in str(e).lower():
+                raise e
+
+        # 处理 sessions 表
+        try:
+            sessions_result = client.execute("SELECT id, cycle_id, date, players, extraCourtCost FROM sessions")
+            for row in sessions_result.rows:
+                cycle_id = row[1]
+                if cycle_id in cycles:
+                    cycles[cycle_id]["sessions"].append({
+                        "id": row[0], "date": row[2],
+                        "players": json.loads(row[3]) if row[3] else [],
+                        "extraCourtCost": float(row[4]) if row[4] is not None else 0
+                    })
+        except Exception as e:
+            print(f"DEBUG_DB_ERROR (fetch sessions): {str(e)}")
+            # 表不存在时不抛异常，允许返回基础数据
+            if "no such table" not in str(e).lower():
+                raise e
+
+        # 处理 member_cycle_configs 表
+        try:
+            configs_result = client.execute("SELECT cycle_id, player_id, type, has_paid_base FROM member_cycle_configs")
+            for row in configs_result.rows:
+                cycle_id = row[0]
+                if cycle_id in cycles:
+                    cycles[cycle_id]["playerConfigs"].append({
+                        "playerId": row[1], "type": row[2], "hasPaidBase": bool(row[3])
+                    })
+        except Exception as e:
+            print(f"DEBUG_DB_ERROR (fetch member_cycle_configs): {str(e)}")
+            if "no such table" not in str(e).lower():
+                raise e
+
         client.close()
         return jsonify(list(cycles.values()))
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        err_msg = str(e)
+        print(f"DEBUG_DB_ERROR (get_periods_main): {err_msg}")
+        return jsonify({"error": err_msg}), 500
 
 @app.route('/api/periods', methods=['POST'])
 def save_period():
@@ -282,21 +312,30 @@ def get_finance_report_sql(cycle_id):
             ((SELECT income FROM total_income) - ci.courtCost - ci.total_extra) / nullif(ci.funder_count, 0) as profit_per_funder
         FROM cycle_info ci;
         '''
-        res = client.execute(sql, [cycle_id, cycle_id, cycle_id])
-        report = {}
-        if res.rows:
-            r = res.rows[0]
-            report = {
-                 "totalActivityFees": r[0] or 0,
-                 "courtCost": r[1] or 0,
-                 "totalExtraCost": r[2] or 0,
-                 "funderCount": r[3] or 0,
-                 "profitPerFunder": r[4] or 0
-            }
-
-        client.close()
-        return jsonify({"success": True, "data": report})
+        try:
+            res = client.execute(sql, [cycle_id, cycle_id, cycle_id])
+            report = {}
+            if res.rows:
+                r = res.rows[0]
+                report = {
+                     "totalActivityFees": r[0] or 0,
+                     "courtCost": r[1] or 0,
+                     "totalExtraCost": r[2] or 0,
+                     "funderCount": r[3] or 0,
+                     "profitPerFunder": r[4] or 0
+                }
+            client.close()
+            return jsonify({"success": True, "data": report})
+        except Exception as sqlite_err:
+            print(f"DEBUG_DB_ERROR (sql_aggregate query): {str(sqlite_err)}")
+            if "no such table" in str(sqlite_err).lower():
+                return jsonify({"success": True, "data": {
+                     "totalActivityFees": 0, "courtCost": 0, "totalExtraCost": 0, "funderCount": 0, "profitPerFunder": 0
+                }})
+            raise sqlite_err
+            
     except Exception as e:
+        print(f"DEBUG_DB_ERROR (get_finance_report_sql_main): {str(e)}")
         return jsonify({"error": str(e)}), 500
 
 @app.route('/', defaults={'path': ''})
