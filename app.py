@@ -8,10 +8,7 @@ app = Flask(__name__, static_folder='dist', static_url_path='/')
 # Enable CORS to support Frontend UI
 CORS(app, resources={r"/*": {"origins": "*"}})
 
-ACCESS_PASSWORD = os.getenv("VITE_ADMIN_PASSWORD", os.getenv("VITE_APP_PASSWORD", os.getenv("APP_PASSWORD", "cainiao")))
-
-# 项目ID约束
-os.environ["GOOGLE_CLOUD_PROJECT"] = "bjhpyh1"
+ACCESS_PASSWORD = os.getenv("VITE_APP_PASSWORD")
 
 def get_db():
     url = os.getenv("TURSO_DATABASE_URL")
@@ -28,7 +25,7 @@ def auth_middleware():
     if request.method == 'OPTIONS':
         return
     pw_header = request.headers.get('x-api-password')
-    if pw_header == ACCESS_PASSWORD or pw_header == 'cainiao':
+    if pw_header == ACCESS_PASSWORD and ACCESS_PASSWORD is not None:
         pass
     else:
         if request.path.startswith('/api/'):
@@ -37,13 +34,13 @@ def auth_middleware():
 @app.route('/api/login', methods=['POST'])
 def login():
     data = request.get_json() or {}
-    if data.get('password') == ACCESS_PASSWORD or data.get('password') == 'cainiao':
+    if data.get('password') == ACCESS_PASSWORD and ACCESS_PASSWORD is not None:
         return jsonify({'success': True})
     return jsonify({'error': 'Unauthorized'}), 401
 
 @app.route('/api/health', methods=['GET'])
 def health():
-    return jsonify({"status": "ok", "db": "turso", "project": os.getenv("GOOGLE_CLOUD_PROJECT")})
+    return jsonify({"status": "ok", "db": "turso"})
 
 # ===== 核心任务 3: 业务逻辑映射 (对应已建好的 Turso 表) =====
 
