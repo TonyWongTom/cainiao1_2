@@ -49,7 +49,7 @@ async function startServer() {
   if (url) {
     try {
       dbClient = createClient({ url, authToken });
-      console.log(`[DB Init] Client created. URL: ${url.substring(0, 15)}...`);
+      console.log(`[DB Init] Client created. URL: ${url.substring(0, 15)}... (using forced HTTPS - v1.0.2)`);
       
       // 非阻塞式连接测试
       dbClient.execute("SELECT 1")
