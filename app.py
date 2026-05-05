@@ -12,22 +12,23 @@ ACCESS_PASSWORD = os.getenv("VITE_APP_PASSWORD", "cainiao").strip()
 
 def get_db():
     # 优先读取 LIBSQL 变量，兼容旧版 TURSO 变量
-    url = os.getenv("LIBSQL_URL") or os.getenv("TURSO_DATABASE_URL")
-    auth_token = os.getenv("LIBSQL_AUTH_TOKEN") or os.getenv("TURSO_AUTH_TOKEN")
+    url = (os.getenv("LIBSQL_URL") or os.getenv("TURSO_DATABASE_URL") or "").strip()
+    auth_token = (os.getenv("LIBSQL_AUTH_TOKEN") or os.getenv("TURSO_AUTH_TOKEN") or "").strip()
     
-    # 安全的调试日志：不打印真实 Token，只打印状态
-    print(f"[DB Debug] URL set: {bool(url)}, AuthToken set: {bool(auth_token)} (len: {len(auth_token) if auth_token else 0})")
+    # 强制调试日志
+    print(f"[DB Init] URL prefix: {url[:10]}..., Token set: {bool(auth_token)}")
     
     if not url:
-        raise ValueError("Database URL (LIBSQL_URL or TURSO_DATABASE_URL) environment variable is not set")
+        print("[CRITICAL] Database URL is MISSING.")
+        raise ValueError("Missing LIBSQL_URL or TURSO_DATABASE_URL")
     
     try:
         return libsql_client.create_client_sync(url=url, auth_token=auth_token)
     except Exception as e:
-        err_str = str(e).lower()
-        if "unauthorized" in err_str or "401" in err_str or "forbidden" in err_str:
-            print("[CRITICAL] Database Authentication Failed: Token Invalid")
-            raise Exception("Token Invalid")
+        err_str = str(e)
+        print(f"[CRITICAL] Client Creation Failed: {err_str}")
+        if "401" in err_str or "unauthorized" in err_str.lower():
+            raise Exception("Database Auth Failed: Check Token")
         raise e
 
 # ===== 认证中间件 =====
@@ -66,7 +67,34 @@ def login():
 
 @app.route('/api/health', methods=['GET'])
 def health():
-    return jsonify({"status": "ok", "db": "turso"})
+    db_status = "Unknown"
+    try:
+        client = get_db()
+        client.execute("SELECT 1")
+        client.close()
+        db_status = "Connected"
+    except Exception as e:
+        db_status = f"Error: {str(e)}"
+    
+    return jsonify({
+        'status': 'ok',
+        'database': db_status,
+        'environment': 'production' if os.getenv('NODE_ENV') == 'production' else 'development'
+    })
+
+@app.errorhandler(500)
+def handle_500_error(e):
+    print(f"[GLOBAL 500 ERROR] {str(e)}")
+    original_err = getattr(e, 'original_exception', e)
+    return jsonify({"error": str(original_err)}), 500
+
+@app.errorhandler(Exception)
+def handle_exception(e):
+    # 针对 401 不转为 500
+    if hasattr(e, 'code') and e.code == 401:
+        return jsonify({"error": str(e)}), 401
+    print(f"[GLOBAL UNHANDLED EXCEPTION] {str(e)}")
+    return jsonify({"error": str(e)}), 500
 
 # ===== 核心任务 3: 业务逻辑映射 (对应已建好的 Turso 表) =====
 
@@ -78,13 +106,15 @@ def get_players():
         result = client.execute("SELECT id, name, type, defaultFee, isFunder FROM members")
         players = []
         for row in result.rows:
-            players.append({
-                "id": row[0],
-                "name": row[1],
-                "type": row[2],
-                "defaultFee": float(row[3]) if row[3] is not None else 0,
-                "isFunder": bool(row[4])
-            })
+            # 增加健壮性校验
+            player = {
+                "id": str(row[0]) if len(row) > 0 else "",
+                "name": str(row[1]) if len(row) > 1 else "Unknown",
+                "type": str(row[2]) if len(row) > 2 else "normal",
+                "defaultFee": float(row[3]) if len(row) > 3 and row[3] is not None else 0,
+                "isFunder": bool(row[4]) if len(row) > 4 else False
+            }
+            players.append(player)
         client.close()
         return jsonify(players)
     except Exception as e:
