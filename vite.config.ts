@@ -9,7 +9,7 @@ export default defineConfig(({ mode }) => {
       base: '/',
       server: {
         host: true,
-        allowedHosts: true,
+        allowedHosts: true, // Allow all hosts
         port: 8080,
       },
       plugins: [
