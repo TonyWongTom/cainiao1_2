@@ -42,13 +42,14 @@ def auth_middleware():
     if request.method == 'OPTIONS':
         return
         
-    # 同时兼容两种 Header 名称
-    pw_header = request.headers.get('x-api-password') or request.headers.get('X-Password')
+    # 同时兼容两种 Header 名称，并进行去除空格处理
+    pw_header = (request.headers.get('x-api-password') or request.headers.get('X-Password') or "").strip()
     
     if pw_header == ACCESS_PASSWORD and ACCESS_PASSWORD:
         return
     else:
-        print(f"[Auth Debug] Unauthorized access to {request.path}. Header set: {bool(pw_header)}")
+        # 在日志中输出详细对比（不打印完整密码以保安全）
+        print(f"[Auth Debug] Unauthorized. Received len: {len(pw_header)}, Expected len: {len(ACCESS_PASSWORD)}")
         return jsonify({'error': 'Unauthorized'}), 401
 
 @app.route('/api/login', methods=['POST'])
@@ -60,7 +61,7 @@ def login():
         print("[Auth Debug] Login Successful")
         return jsonify({'success': True})
     
-    print(f"[Auth Debug] Login Failed. Received: '{password[:2]}...', Expected: '{ACCESS_PASSWORD[:2]}...'")
+    print(f"[Auth Debug] Login Failed. Received len: {len(password)}, Expected len: {len(ACCESS_PASSWORD)}")
     return jsonify({'error': 'Unauthorized'}), 401
 
 @app.route('/api/health', methods=['GET'])
