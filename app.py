@@ -11,11 +11,24 @@ CORS(app, resources={r"/*": {"origins": "*"}})
 ACCESS_PASSWORD = os.getenv("VITE_APP_PASSWORD", "YH2026")
 
 def get_db():
-    url = os.getenv("TURSO_DATABASE_URL")
-    auth_token = os.getenv("TURSO_AUTH_TOKEN")
+    # 优先读取 LIBSQL 变量，兼容旧版 TURSO 变量
+    url = os.getenv("LIBSQL_URL") or os.getenv("TURSO_DATABASE_URL")
+    auth_token = os.getenv("LIBSQL_AUTH_TOKEN") or os.getenv("TURSO_AUTH_TOKEN")
+    
+    # 安全的调试日志：不打印真实 Token，只打印状态
+    print(f"[DB Debug] URL set: {bool(url)}, AuthToken set: {bool(auth_token)} (len: {len(auth_token) if auth_token else 0})")
+    
     if not url:
-        raise ValueError("TURSO_DATABASE_URL environment variable is not set")
-    return libsql_client.create_client_sync(url=url, auth_token=auth_token)
+        raise ValueError("Database URL (LIBSQL_URL or TURSO_DATABASE_URL) environment variable is not set")
+    
+    try:
+        return libsql_client.create_client_sync(url=url, auth_token=auth_token)
+    except Exception as e:
+        err_str = str(e).lower()
+        if "unauthorized" in err_str or "401" in err_str or "forbidden" in err_str:
+            print("[CRITICAL] Database Authentication Failed: Token Invalid")
+            raise Exception("Token Invalid")
+        raise e
 
 # ===== 认证中间件 =====
 @app.before_request

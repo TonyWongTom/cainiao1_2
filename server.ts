@@ -20,7 +20,7 @@ async function startServer() {
   
   app.use(cors({
     origin: function(origin, callback) {
-      if (!origin || origin.includes('web.app') || origin.includes('run.app') || origin.includes('firebaseapp.com') || origin.includes('localhost')) {
+      if (!origin || origin.includes('run.app') || origin.includes('localhost')) {
         callback(null, true);
       } else {
         callback(new Error('Not allowed by CORS'));
@@ -32,14 +32,19 @@ async function startServer() {
   app.use(express.json());
 
   // Turso client
-  const url = process.env.TURSO_DATABASE_URL;
-  const authToken = process.env.TURSO_AUTH_TOKEN;
+  const url = process.env.LIBSQL_URL || process.env.TURSO_DATABASE_URL;
+  const authToken = process.env.LIBSQL_AUTH_TOKEN || process.env.TURSO_AUTH_TOKEN;
+
+  console.log(`[DB Debug] URL set: ${!!url}, AuthToken set: ${!!authToken} (len: ${authToken?.length || 0})`);
 
   let dbClient: ReturnType<typeof createClient> | null = null;
   if (url) {
     try {
       dbClient = createClient({ url, authToken });
       console.log('✅ Connected to Turso database');
+      
+      // Test connection
+      await dbClient.execute("SELECT 1");
       
       // Auto-initialize tables
       await dbClient.execute(`
@@ -81,7 +86,12 @@ async function startServer() {
          );
       `);
     } catch (e: any) {
-      console.error('Failed to initialize Turso:', e.message);
+      const errStr = e.message.toLowerCase();
+      if (errStr.includes("unauthorized") || errStr.includes("401") || errStr.includes("forbidden")) {
+        console.error('[CRITICAL] Database Authentication Failed: Token Invalid');
+      } else {
+        console.error('Failed to initialize Turso:', e.message);
+      }
     }
   } else {
     console.warn('⚠️ TURSO_DATABASE_URL is not set!');
