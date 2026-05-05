@@ -1,5 +1,5 @@
 // Update trigger for Cloud Run deployment: fixed wss protocol issue with Turso 
-// Version: 1.0.1
+// Version: 1.0.3
 import express from 'express';
 import { createServer as createViteServer } from 'vite';
 import path from 'path';

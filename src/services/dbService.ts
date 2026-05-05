@@ -10,7 +10,16 @@ async function apiFetch(path: string, options: RequestInit = {}) {
     'x-api-password': currentPassword.trim(),
     ...options.headers,
   };
-  const response = await fetch(path, { ...options, headers });
+
+  // Append timestamp to GET requests to prevent mobile browser caching
+  const method = options.method || 'GET';
+  let finalPath = path;
+  if (method.toUpperCase() === 'GET') {
+    const separator = path.includes('?') ? '&' : '?';
+    finalPath = `${path}${separator}t=${new Date().getTime()}`;
+  }
+
+  const response = await fetch(finalPath, { ...options, headers });
   if (!response.ok) {
     let errorMsg = `API Error: ${response.status}`;
     try {
