@@ -1,20 +1,9 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
+# 羽毛球俱乐部财务统计工具
 
-# Run and deploy your AI Studio app
+基于 Turso 数据库、Python Flask 后端与 React/Vite 前端构建。
 
-This contains everything you need to run your app locally.
+- 后端主入口: `server.ts` / `app.py`
+- 数据库: Turso (SQLite)
+- 环境配置依赖于 `.env`
 
-View your app in AI Studio: https://ai.studio/apps/20918ae5-df19-4023-a89e-adff5c36f61f
-
-## Run Locally
-
-**Prerequisites:**  Node.js
-
-
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+部署准备：使用 `build.sh` 脚本和 `Dockerfile` 进行容器化构建及 Cloud Run 部署。

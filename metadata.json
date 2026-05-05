@@ -1,6 +1,6 @@
 {
   "name": "Remix: 菜鸟基地小帮手v2（firebase省流版）",
-  "description": "一个专为羽毛球俱乐部设计的财务统计工具，支持结算周期管理、人员档案管理、打球记录统计及集资包月人员的盈余结算。",
+  "description": "一个专为羽毛球俱乐部设计的财务统计工具，支持结算周期管理、人员档案管理、打球记录统计及集资包月人员的盈余结算。基于 Turso 数据库及 Python Flask 后端。",
   "requestFramePermissions": [],
   "majorCapabilities": []
 }
