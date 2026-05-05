@@ -32,69 +32,26 @@ async function startServer() {
   app.use(express.json());
 
   // Turso client
-  const url = process.env.LIBSQL_URL || process.env.TURSO_DATABASE_URL;
-  const authToken = process.env.LIBSQL_AUTH_TOKEN || process.env.TURSO_AUTH_TOKEN;
-
-  console.log(`[DB Debug] URL set: ${!!url}, AuthToken set: ${!!authToken} (len: ${authToken?.length || 0})`);
+  const url = (process.env.LIBSQL_URL || process.env.TURSO_DATABASE_URL || "").trim();
+  const authToken = (process.env.LIBSQL_AUTH_TOKEN || process.env.TURSO_AUTH_TOKEN || "").trim();
 
   let dbClient: ReturnType<typeof createClient> | null = null;
+
   if (url) {
     try {
       dbClient = createClient({ url, authToken });
-      console.log('✅ Connected to Turso database');
+      console.log(`[DB Init] Client created. URL: ${url.substring(0, 15)}...`);
       
-      // Test connection
-      await dbClient.execute("SELECT 1");
+      // 非阻塞式连接测试
+      dbClient.execute("SELECT 1")
+        .then(() => console.log('✅ Database connection successful (Async Check)'))
+        .catch(e => console.error(`[DB Init Error] Async check failed: ${e.message}`));
       
-      // Auto-initialize tables
-      await dbClient.execute(`
-        CREATE TABLE IF NOT EXISTS members (
-          id TEXT PRIMARY KEY,
-          name TEXT,
-          type TEXT,
-          defaultFee REAL,
-          isFunder INTEGER
-        );
-      `);
-      await dbClient.execute(`
-        CREATE TABLE IF NOT EXISTS cycles (
-          id TEXT PRIMARY KEY,
-          name TEXT,
-          startDate TEXT,
-          endDate TEXT,
-          courtCost REAL,
-          funderIds TEXT
-        );
-      `);
-      await dbClient.execute(`
-        CREATE TABLE IF NOT EXISTS sessions (
-          id INTEGER PRIMARY KEY,
-          cycle_id TEXT,
-          session_date TEXT,
-          attendees TEXT,
-          extra_court_fee REAL,
-          session_revenue REAL DEFAULT 0
-        );
-      `);
-      await dbClient.execute(`
-         CREATE TABLE IF NOT EXISTS member_cycle_configs (
-           cycle_id TEXT,
-           player_id TEXT,
-           type TEXT,
-           has_paid_base INTEGER,
-           PRIMARY KEY (cycle_id, player_id)
-         );
-      `);
     } catch (e: any) {
-      const errStr = e.message.toLowerCase();
-      if (errStr.includes("unauthorized") || errStr.includes("401") || errStr.includes("forbidden")) {
-        console.error('[CRITICAL] Database Authentication Failed: Token Invalid');
-      } else {
-        console.error('Failed to initialize Turso:', e.message);
-      }
+      console.error(`[CRITICAL] DB client creation failed: ${e.message}`);
     }
   } else {
-    console.warn('⚠️ TURSO_DATABASE_URL is not set!');
+    console.error('[CRITICAL] Database URL is MISSING.');
   }
 
   const apiRouter = express.Router();
@@ -115,18 +72,22 @@ async function startServer() {
   // --- Players ---
   apiRouter.get('/players', async (req, res) => {
     try {
-      if (!dbClient) return res.json([]);
+      if (!dbClient) throw new Error('DB not initialized');
+      console.log('[DB Query] Fetching members...');
       const rs = await dbClient.execute("SELECT id, name, type, defaultFee, isFunder FROM members");
       res.json(rs.rows.map(row => ({
-        id: row.id,
-        name: row.name,
-        type: row.type,
+        id: String(row.id || ''),
+        name: String(row.name || 'Unknown'),
+        type: String(row.type || 'normal'),
         defaultFee: Number(row.defaultFee) || 0,
         isFunder: Boolean(row.isFunder)
       })));
     } catch (err: any) {
-      console.error(err);
-      res.status(500).json({ error: err.message });
+      console.error(`DEBUG_DB_ERROR (get_players): ${err.message}`);
+      if (err.message.toLowerCase().includes("no such table")) {
+        return res.json([]);
+      }
+      res.status(500).json({ error: `Database Query Failed: ${err.message}` });
     }
   });
 
@@ -164,51 +125,70 @@ async function startServer() {
   // --- Periods ---
   apiRouter.get('/periods', async (req, res) => {
     try {
-      if (!dbClient) return res.json([]);
-      const cyclesRes = await dbClient.execute("SELECT id, name, startDate, endDate, courtCost, funderIds FROM cycles");
+      if (!dbClient) throw new Error('DB not initialized');
       
       const cyclesMap: Record<string, any> = {};
-      for (const row of cyclesRes.rows) {
-        cyclesMap[row.id as string] = {
-          id: row.id,
-          name: row.name,
-          startDate: row.startDate,
-          endDate: row.endDate,
-          courtCost: Number(row.courtCost) || 0,
-          funderIds: row.funderIds ? JSON.parse(row.funderIds as string) : [],
-          sessions: [],
-          playerConfigs: []
-        };
+      
+      // Fetch Cycles
+      try {
+        const cyclesRes = await dbClient.execute("SELECT id, name, startDate, endDate, courtCost, funderIds FROM cycles");
+        for (const row of cyclesRes.rows) {
+          cyclesMap[row.id as string] = {
+            id: row.id,
+            name: row.name,
+            startDate: row.startDate,
+            endDate: row.endDate,
+            courtCost: Number(row.courtCost) || 0,
+            funderIds: row.funderIds ? JSON.parse(row.funderIds as string) : [],
+            sessions: [],
+            playerConfigs: []
+          };
+        }
+      } catch (err: any) {
+        console.error(`DEBUG_DB_ERROR (fetch cycles): ${err.message}`);
+        if (!err.message.toLowerCase().includes("no such table")) throw err;
       }
 
-      const sessionsRes = await dbClient.execute("SELECT id, cycle_id, session_date, attendees, extra_court_fee, session_revenue FROM sessions");
-      for (const row of sessionsRes.rows) {
-        const cId = row.cycle_id as string;
-        if (cyclesMap[cId]) {
-          cyclesMap[cId].sessions.push({
-            id: row.id ? String(row.id) : '',
-            date: row.session_date,
-            attendees: row.attendees ? JSON.parse(row.attendees as string) : [],
-            sessionCost: Number(row.extra_court_fee) || 0
-          });
+      // Fetch Sessions
+      try {
+        const sessionsRes = await dbClient.execute("SELECT id, cycle_id, date, players, extraCourtCost FROM sessions");
+        for (const row of sessionsRes.rows) {
+          const cId = row.cycle_id as string;
+          if (cyclesMap[cId]) {
+            cyclesMap[cId].sessions.push({
+              id: String(row.id || ''),
+              date: row.date,
+              players: row.players ? JSON.parse(row.players as string) : [],
+              extraCourtCost: Number(row.extraCourtCost) || 0
+            });
+          }
         }
+      } catch (err: any) {
+        console.error(`DEBUG_DB_ERROR (fetch sessions): ${err.message}`);
+        if (!err.message.toLowerCase().includes("no such table")) throw err;
       }
 
-      const confRes = await dbClient.execute("SELECT cycle_id, player_id, type, has_paid_base FROM member_cycle_configs");
-      for (const row of confRes.rows) {
-        const cId = row.cycle_id as string;
-        if (cyclesMap[cId]) {
-          cyclesMap[cId].playerConfigs.push({
-            playerId: row.player_id,
-            type: row.type,
-            hasPaidBase: Boolean(row.has_paid_base)
-          });
+      // Fetch Configs
+      try {
+        const confRes = await dbClient.execute("SELECT cycle_id, player_id, type, has_paid_base FROM member_cycle_configs");
+        for (const row of confRes.rows) {
+          const cId = row.cycle_id as string;
+          if (cyclesMap[cId]) {
+            cyclesMap[cId].playerConfigs.push({
+              playerId: row.player_id,
+              type: row.type,
+              hasPaidBase: Boolean(row.has_paid_base)
+            });
+          }
         }
+      } catch (err: any) {
+        console.error(`DEBUG_DB_ERROR (fetch member_cycle_configs): ${err.message}`);
+        if (!err.message.toLowerCase().includes("no such table")) throw err;
       }
 
       res.json(Object.values(cyclesMap));
     } catch (err: any) {
-      console.error(err);
+      console.error(`DEBUG_DB_ERROR (get_periods_main): ${err.message}`);
       res.status(500).json({ error: err.message });
     }
   });
@@ -235,8 +215,8 @@ async function startServer() {
       stmts.push({ sql: "DELETE FROM sessions WHERE cycle_id = ?", args: [cycleId] });
       for (const session of data.sessions || []) {
         stmts.push({
-          sql: `INSERT INTO sessions (id, cycle_id, session_date, attendees, extra_court_fee) VALUES (?, ?, ?, ?, ?)`,
-          args: [session.id, cycleId, session.date || '', JSON.stringify(session.attendees || []), Number(session.sessionCost) || 0]
+          sql: `INSERT INTO sessions (id, cycle_id, date, players, extraCourtCost) VALUES (?, ?, ?, ?, ?)`,
+          args: [session.id, cycleId, session.date || '', JSON.stringify(session.players || []), Number(session.extraCourtCost) || 0]
         });
       }
 
@@ -251,6 +231,7 @@ async function startServer() {
       await dbClient.batch(stmts, "write");
       res.status(201).json({ success: true, id: cycleId });
     } catch (err: any) {
+      console.error(`DEBUG_DB_ERROR (save_period): ${err.message}`);
       res.status(500).json({ error: err.message });
     }
   });
@@ -277,8 +258,8 @@ async function startServer() {
       
       const sql = `
         WITH json_players AS (
-            SELECT cycle_id, extra_court_fee, json_each.value AS player_id 
-            FROM sessions, json_each(sessions.attendees)
+            SELECT cycle_id, extraCourtCost, json_each.value AS player_id 
+            FROM sessions, json_each(sessions.players)
             WHERE cycle_id = ?
         ),
         player_fees AS (
@@ -302,7 +283,7 @@ async function startServer() {
             SELECT 
                 courtCost, 
                 json_array_length(funderIds) as funder_count,
-                (SELECT coalesce(sum(extra_court_fee), 0) FROM sessions WHERE cycle_id = ?) as total_extra
+                (SELECT coalesce(sum(extraCourtCost), 0) FROM sessions WHERE cycle_id = ?) as total_extra
             FROM cycles 
             WHERE id = ?
         )

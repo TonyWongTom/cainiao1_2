@@ -23,19 +23,25 @@ def get_db():
         raise ValueError("Missing LIBSQL_URL or TURSO_DATABASE_URL")
     
     try:
-        # 同时检查 URL 和 Token 状态（前 10 位）
-        print(f"[DB Debug] Attempting connect. URL: {url[:15]}... | Token set: {bool(auth_token)} | Len: {len(auth_token)}")
-        return libsql_client.create_client_sync(url=url, auth_token=auth_token)
+        from datetime import datetime
+        now = datetime.now().strftime("%H:%M:%S.%f")
+        # 强制检查 URL 协议头，Turso 推荐使用 libsql:// 或 https://
+        print(f"[{now}] [DB Init] Step 1: Creating client. URL: {url[:20]}...")
+        client = libsql_client.create_client_sync(url=url, auth_token=auth_token)
+        print(f"[{datetime.now().strftime('%H:%M:%S.%f')}] [DB Init] Step 2: Client object created.")
+        return client
     except Exception as e:
-        print(f"[CRITICAL] CREATE_CLIENT_ERROR: {str(e)}")
+        print(f"[{datetime.now().strftime('%H:%M:%S.%f')}] [CRITICAL] CREATE_CLIENT_ERROR: {str(e)}")
         raise e
 
 # ===== 认证中间件 =====
 @app.before_request
 def auth_middleware():
-    # 静态资源、健康检查和登录接口不进行中间件拦截
+    # 静态资源、健康检查、登录接口以及调试接口不进行中间件拦截
     if not request.path.startswith('/api/') or \
        request.path.startswith('/api/health') or \
+       request.path.startswith('/api/debug_db') or \
+       request.path.startswith('/api/env_check') or \
        request.path.startswith('/api/login'):
         return
         
@@ -83,8 +89,32 @@ def health():
         'url_configured': bool(os.getenv("LIBSQL_URL") or os.getenv("TURSO_DATABASE_URL"))
     })
 
+@app.route('/api/env_check', methods=['GET'])
+def env_check():
+    """纯环境检查，不访问数据库，验证后端存活及变量加载情况"""
+    url = os.getenv("LIBSQL_URL") or os.getenv("TURSO_DATABASE_URL") or ""
+    token = os.getenv("LIBSQL_AUTH_TOKEN") or os.getenv("TURSO_AUTH_TOKEN") or ""
+    return jsonify({
+        "status": "backend_is_alive",
+        "url_status": {
+            "is_set": bool(url),
+            "prefix": url[:15] if url else "none",
+            "len": len(url)
+        },
+        "token_status": {
+            "is_set": bool(token),
+            "len": len(token)
+        },
+        "password_configured": bool(ACCESS_PASSWORD)
+    })
+
 @app.route('/api/debug_db', methods=['GET'])
 def debug_db():
+    env_info = {
+        "LIBSQL_URL_SET": bool(os.getenv("LIBSQL_URL") or os.getenv("TURSO_DATABASE_URL")),
+        "LIBSQL_TOKEN_SET": bool(os.getenv("LIBSQL_AUTH_TOKEN") or os.getenv("TURSO_AUTH_TOKEN")),
+        "URL_PREFIX": (os.getenv("LIBSQL_URL") or os.getenv("TURSO_DATABASE_URL") or "")[:15]
+    }
     try:
         client = get_db()
         # 1. 查表名
@@ -99,12 +129,16 @@ def debug_db():
             
         client.close()
         return jsonify({
+            "env": env_info,
             "tables": table_names,
             "members_schema": schema,
             "libsql_version": getattr(libsql_client, '__version__', 'unknown')
         })
     except Exception as e:
-        return jsonify({"debug_error": str(e)}), 500
+        return jsonify({
+            "env": env_info,
+            "debug_error": str(e)
+        }), 500
 
 @app.errorhandler(500)
 def handle_500_error(e):
