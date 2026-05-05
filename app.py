@@ -8,7 +8,7 @@ app = Flask(__name__, static_folder='dist', static_url_path='/')
 # Enable CORS to support Frontend UI
 CORS(app, resources={r"/*": {"origins": "*"}})
 
-ACCESS_PASSWORD = os.getenv("VITE_APP_PASSWORD", "YH2026").strip()
+ACCESS_PASSWORD = os.getenv("VITE_APP_PASSWORD", "cainiao").strip()
 
 def get_db():
     # 优先读取 LIBSQL 变量，兼容旧版 TURSO 变量
