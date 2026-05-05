@@ -32,8 +32,15 @@ async function startServer() {
   app.use(express.json());
 
   // Turso client
-  const url = (process.env.LIBSQL_URL || process.env.TURSO_DATABASE_URL || "").trim();
+  let url = (process.env.LIBSQL_URL || process.env.TURSO_DATABASE_URL || "").trim();
   const authToken = (process.env.LIBSQL_AUTH_TOKEN || process.env.TURSO_AUTH_TOKEN || "").trim();
+
+  // Force HTTPS protocol to avoid WebSocket 505 errors with Turso
+  if (url.startsWith('libsql://')) {
+    url = url.replace('libsql://', 'https://');
+  } else if (url.startsWith('wss://')) {
+    url = url.replace('wss://', 'https://');
+  }
 
   let dbClient: ReturnType<typeof createClient> | null = null;
 
