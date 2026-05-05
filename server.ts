@@ -14,7 +14,7 @@ dotenv.config();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const PORT = 3000;
+const PORT = parseInt(process.env.PORT || '3000', 10);
 const ACCESS_PASSWORD = process.env.VITE_ADMIN_PASSWORD || process.env.VITE_APP_PASSWORD || process.env.APP_PASSWORD || 'cainiao';
 
 async function startServer() {
