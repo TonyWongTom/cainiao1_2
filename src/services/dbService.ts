@@ -12,7 +12,14 @@ async function apiFetch(path: string, options: RequestInit = {}) {
   };
   const response = await fetch(path, { ...options, headers });
   if (!response.ok) {
-    throw new Error(`API Error: ${response.status}`);
+    let errorMsg = `API Error: ${response.status}`;
+    try {
+      const errorData = await response.json();
+      if (errorData.error) errorMsg = errorData.error;
+    } catch {
+      // JSON parse failed, keep generic error
+    }
+    throw new Error(errorMsg);
   }
   return response.json();
 }

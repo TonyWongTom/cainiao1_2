@@ -23,12 +23,11 @@ def get_db():
         raise ValueError("Missing LIBSQL_URL or TURSO_DATABASE_URL")
     
     try:
+        # 同时检查 URL 和 Token 状态（前 10 位）
+        print(f"[DB Debug] Attempting connect. URL: {url[:15]}... | Token set: {bool(auth_token)} | Len: {len(auth_token)}")
         return libsql_client.create_client_sync(url=url, auth_token=auth_token)
     except Exception as e:
-        err_str = str(e)
-        print(f"[CRITICAL] Client Creation Failed: {err_str}")
-        if "401" in err_str or "unauthorized" in err_str.lower():
-            raise Exception("Database Auth Failed: Check Token")
+        print(f"[CRITICAL] CREATE_CLIENT_ERROR: {str(e)}")
         raise e
 
 # ===== 认证中间件 =====
@@ -68,19 +67,44 @@ def login():
 @app.route('/api/health', methods=['GET'])
 def health():
     db_status = "Unknown"
+    details = {}
     try:
         client = get_db()
         client.execute("SELECT 1")
-        client.close()
         db_status = "Connected"
+        client.close()
     except Exception as e:
         db_status = f"Error: {str(e)}"
+        print(f"[Health Check Error] {str(e)}")
     
     return jsonify({
         'status': 'ok',
         'database': db_status,
-        'environment': 'production' if os.getenv('NODE_ENV') == 'production' else 'development'
+        'url_configured': bool(os.getenv("LIBSQL_URL") or os.getenv("TURSO_DATABASE_URL"))
     })
+
+@app.route('/api/debug_db', methods=['GET'])
+def debug_db():
+    try:
+        client = get_db()
+        # 1. 查表名
+        tables = client.execute("SELECT name FROM sqlite_master WHERE type='table'").rows
+        table_names = [t[0] for t in tables]
+        
+        # 2. 查 members 表结构
+        schema = []
+        if 'members' in table_names:
+            columns = client.execute("PRAGMA table_info(members)").rows
+            schema = [f"{c[1]} ({c[2]})" for c in columns]
+            
+        client.close()
+        return jsonify({
+            "tables": table_names,
+            "members_schema": schema,
+            "libsql_version": getattr(libsql_client, '__version__', 'unknown')
+        })
+    except Exception as e:
+        return jsonify({"debug_error": str(e)}), 500
 
 @app.errorhandler(500)
 def handle_500_error(e):
@@ -103,27 +127,41 @@ def handle_exception(e):
 def get_players():
     try:
         client = get_db()
-        result = client.execute("SELECT id, name, type, defaultFee, isFunder FROM members")
+        # 使用动态字段，防止因为某一个字段不存在导致整条 SQL 崩掉
+        sql = "SELECT id, name FROM members"
+        print("[DB Query] Fetching members...")
+        result = client.execute(sql)
+        
         players = []
+        # 获取列索引，安全映射
+        col_names = [col for col in result.columns]
+        print(f"[DB Result] Columns found: {col_names}")
+
         for row in result.rows:
-            # 增加健壮性校验
-            player = {
-                "id": str(row[0]) if len(row) > 0 else "",
-                "name": str(row[1]) if len(row) > 1 else "Unknown",
-                "type": str(row[2]) if len(row) > 2 else "normal",
-                "defaultFee": float(row[3]) if len(row) > 3 and row[3] is not None else 0,
-                "isFunder": bool(row[4]) if len(row) > 4 else False
-            }
-            players.append(player)
+            # 基础字段
+            p = {"id": str(row[0]), "name": str(row[1])}
+            
+            # 尝试补充其他字段 (兼容不同表结构)
+            # 在 members 表中，这些字段可能叫不同的名字或不存在
+            for i, name in enumerate(col_names):
+                if name.lower() in ['type', 'role']: p['type'] = row[i]
+                if name.lower() in ['defaultfee', 'fee']: p['defaultFee'] = float(row[i]) if row[i] is not None else 0
+                if name.lower() in ['isfunder', 'funder']: p['isFunder'] = bool(row[i])
+            
+            # 设置默认值
+            if 'type' not in p: p['type'] = 'normal'
+            if 'defaultFee' not in p: p['defaultFee'] = 0
+            if 'isFunder' not in p: p['isFunder'] = False
+                
+            players.append(p)
         client.close()
         return jsonify(players)
     except Exception as e:
         err_msg = str(e)
         print(f"DEBUG_DB_ERROR (get_players): {err_msg}")
-        # 如果表不存在，返回空列表，不抛 500
         if "no such table" in err_msg.lower():
             return jsonify([])
-        return jsonify({"error": err_msg}), 500
+        return jsonify({"error": f"Database Query Failed: {err_msg}"}), 500
 
 @app.route('/api/players', methods=['POST'])
 def save_player():
