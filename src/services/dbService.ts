@@ -6,7 +6,8 @@ let currentPassword = localStorage.getItem('app_password') || '';
 async function apiFetch(path: string, options: RequestInit = {}) {
   const headers = {
     'Content-Type': 'application/json',
-    'x-api-password': currentPassword,
+    'X-Password': currentPassword.trim(),
+    'x-api-password': currentPassword.trim(),
     ...options.headers,
   };
   const response = await fetch(path, { ...options, headers });
@@ -31,15 +32,16 @@ export const auth = {
     };
   },
   loginWithPassword: async (password: string) => {
+    const trimmedPassword = password.trim();
     try {
       const res = await fetch('/api/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ password })
+        body: JSON.stringify({ password: trimmedPassword })
       });
       if (res.ok) {
-        currentPassword = password;
-        localStorage.setItem('app_password', password);
+        currentPassword = trimmedPassword;
+        localStorage.setItem('app_password', trimmedPassword);
         authStateListeners.forEach(cb => cb(true));
         return true;
       }

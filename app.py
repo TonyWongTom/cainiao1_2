@@ -8,7 +8,7 @@ app = Flask(__name__, static_folder='dist', static_url_path='/')
 # Enable CORS to support Frontend UI
 CORS(app, resources={r"/*": {"origins": "*"}})
 
-ACCESS_PASSWORD = os.getenv("VITE_APP_PASSWORD", "YH2026")
+ACCESS_PASSWORD = os.getenv("VITE_APP_PASSWORD", "YH2026").strip()
 
 def get_db():
     # 优先读取 LIBSQL 变量，兼容旧版 TURSO 变量
@@ -33,22 +33,34 @@ def get_db():
 # ===== 认证中间件 =====
 @app.before_request
 def auth_middleware():
-    if request.path.startswith('/api/health') or request.path.startswith('/api/login'):
+    # 静态资源、健康检查和登录接口不进行中间件拦截
+    if not request.path.startswith('/api/') or \
+       request.path.startswith('/api/health') or \
+       request.path.startswith('/api/login'):
         return
+        
     if request.method == 'OPTIONS':
         return
-    pw_header = request.headers.get('x-api-password')
-    if pw_header == ACCESS_PASSWORD and ACCESS_PASSWORD is not None:
-        pass
+        
+    # 同时兼容两种 Header 名称
+    pw_header = request.headers.get('x-api-password') or request.headers.get('X-Password')
+    
+    if pw_header == ACCESS_PASSWORD and ACCESS_PASSWORD:
+        return
     else:
-        if request.path.startswith('/api/'):
-            return jsonify({'error': 'Unauthorized'}), 401
+        print(f"[Auth Debug] Unauthorized access to {request.path}. Header set: {bool(pw_header)}")
+        return jsonify({'error': 'Unauthorized'}), 401
 
 @app.route('/api/login', methods=['POST'])
 def login():
     data = request.get_json() or {}
-    if data.get('password') == ACCESS_PASSWORD and ACCESS_PASSWORD is not None:
+    password = (data.get('password') or "").strip()
+    
+    if password == ACCESS_PASSWORD and ACCESS_PASSWORD:
+        print("[Auth Debug] Login Successful")
         return jsonify({'success': True})
+    
+    print(f"[Auth Debug] Login Failed. Received: '{password[:2]}...', Expected: '{ACCESS_PASSWORD[:2]}...'")
     return jsonify({'error': 'Unauthorized'}), 401
 
 @app.route('/api/health', methods=['GET'])
