@@ -1,5 +1,5 @@
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import DatePicker, { registerLocale } from 'react-datepicker';
 import { zhCN } from 'date-fns/locale';
 import { Period, Player, Session, PlayerType } from '../types';
@@ -8,6 +8,31 @@ import { formatDateChinese } from '../utils/dateUtils';
 import { useAppContext } from '../context/AppContext';
 
 registerLocale('zh-CN', zhCN);
+
+function useDoubleConfirm(timeoutMs = 3000) {
+  const [confirmId, setConfirmId] = useState<string | null>(null);
+  const confirmRef = useRef<string | null>(null);
+  const timeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  const requestConfirm = (id: string, onConfirm: () => void) => {
+    if (confirmRef.current === id) {
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+      confirmRef.current = null;
+      setConfirmId(null);
+      onConfirm();
+    } else {
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+      confirmRef.current = id;
+      setConfirmId(id);
+      timeoutRef.current = setTimeout(() => {
+        confirmRef.current = null;
+        setConfirmId(null);
+      }, timeoutMs);
+    }
+  };
+
+  return { confirmId, requestConfirm };
+}
 
 interface PeriodsListProps {
 }
@@ -21,8 +46,9 @@ const PeriodsList: React.FC<PeriodsListProps> = () => {
   const [activeSessionPeriod, setActiveSessionPeriod] = useState<string | null>(null);
   const [sessionSearchQuery, setSessionSearchQuery] = useState('');
   const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
-  const [periodToDeleteId, setPeriodToDeleteId] = useState<string | null>(null);
-  const [sessionConfirmDeleteId, setSessionConfirmDeleteId] = useState<string | null>(null);
+  
+  const periodConfirm = useDoubleConfirm(3000);
+  const sessionConfirm = useDoubleConfirm(3000);
 
   const [sortBy, setSortBy] = useState<'date' | 'name'>('date');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
@@ -38,8 +64,8 @@ const PeriodsList: React.FC<PeriodsListProps> = () => {
     sessions: [],
     playerConfigs: Array.isArray(players) ? players.map(p => ({
       playerId: p.id,
-      type: PlayerType.PER_SESSION,
-      fee: DEFAULT_SESSION_FEE
+      type: p.type || PlayerType.PER_SESSION,
+      fee: p.defaultFee ?? (p.type === PlayerType.MONTHLY ? DEFAULT_MONTHLY_FEE : p.type === PlayerType.HALF_MONTHLY ? DEFAULT_HALF_MONTHLY_FEE : DEFAULT_SESSION_FEE)
     })) : []
   };
 
@@ -47,14 +73,6 @@ const PeriodsList: React.FC<PeriodsListProps> = () => {
   const [sessionFormDate, setSessionFormDate] = useState(new Date().toISOString().split('T')[0]);
   const [sessionFormCost, setSessionFormCost] = useState<number>(0);
   const [selectedAttendees, setSelectedAttendees] = useState<{playerId: string, fee: number}[]>([]);
-
-  // 自动重置场次删除确认状态
-  useEffect(() => {
-    if (sessionConfirmDeleteId) {
-      const timer = setTimeout(() => setSessionConfirmDeleteId(null), 3000);
-      return () => clearTimeout(timer);
-    }
-  }, [sessionConfirmDeleteId]);
 
   const sortedPeriods = useMemo(() => {
     return (Array.isArray(periods) ? [...periods] : []).sort((a, b) => {
@@ -182,14 +200,10 @@ const PeriodsList: React.FC<PeriodsListProps> = () => {
   const deletePeriod = (e: React.MouseEvent, periodId: string) => {
     e.preventDefault();
     e.stopPropagation();
-    setPeriodToDeleteId(periodId);
-  };
-
-  const handleDeletePeriodConfirmed = () => {
-    if (!periodToDeleteId) return;
-    setPeriods(prev => prev.filter(p => p.id !== periodToDeleteId));
-    setPeriodToDeleteId(null);
-    if (expandedPeriodId === periodToDeleteId) setExpandedPeriodId(null);
+    periodConfirm.requestConfirm(periodId, () => {
+      setPeriods(prev => prev.filter(p => p.id !== periodId));
+      if (expandedPeriodId === periodId) setExpandedPeriodId(null);
+    });
   };
 
   // --- 打球场次逻辑 ---
@@ -197,21 +211,17 @@ const PeriodsList: React.FC<PeriodsListProps> = () => {
     e.preventDefault();
     e.stopPropagation();
     
-    if (sessionConfirmDeleteId !== sessionId) {
-      setSessionConfirmDeleteId(sessionId);
-      return;
-    }
-
-    setPeriods(prev => prev.map(p => {
-      if (p.id === periodId) {
-        return {
-          ...p,
-          sessions: (p.sessions || []).filter(s => s.id !== sessionId)
-        };
-      }
-      return p;
-    }));
-    setSessionConfirmDeleteId(null);
+    sessionConfirm.requestConfirm(sessionId, () => {
+      setPeriods(prev => prev.map(p => {
+        if (p.id === periodId) {
+          return {
+            ...p,
+            sessions: (p.sessions || []).filter(s => s.id !== sessionId)
+          };
+        }
+        return p;
+      }));
+    });
   };
 
   const saveSession = (periodId: string) => {
@@ -280,45 +290,6 @@ const PeriodsList: React.FC<PeriodsListProps> = () => {
   };
 
   // --- 模态框渲染 ---
-  const renderDeleteModal = () => {
-    const period = Array.isArray(periods) ? periods.find(p => p.id === periodToDeleteId) : undefined;
-    if (!period) return null;
-
-    return (
-      <div className="fixed inset-0 z-[200] flex items-center justify-center p-6 animate-fade-in bg-black/60 backdrop-blur-md">
-        <div className="w-full max-w-sm bg-white/30 backdrop-blur-[20px] rounded-[2.5rem] border border-white/50 p-8 shadow-2xl animate-fade-in">
-          <div className="flex flex-col items-center text-center">
-            <div className="w-16 h-16 bg-red-50 text-red-500 rounded-full flex items-center justify-center mb-4">
-              <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-              </svg>
-            </div>
-            <h3 className="text-xl font-black text-gray-800 mb-2">确认删除周期？</h3>
-            <div className="bg-red-50 rounded-2xl p-4 mb-6">
-              <p className="text-xs text-red-600 font-bold leading-relaxed">
-                警告：删除周期 <span className="underline font-black">"{period.name}"</span> 将会导致其包含的 <span className="font-black underline">{period.sessions?.length || 0} 场打球记录</span> 被永久清除，且无法恢复相关财务数据。
-              </p>
-            </div>
-          </div>
-          <div className="flex flex-col gap-3">
-            <button 
-              onClick={handleDeletePeriodConfirmed} 
-              className="w-full bg-red-600 text-white py-4 rounded-2xl font-black text-base shadow-lg shadow-red-200 active:scale-95 transition-all"
-            >
-              确认永久删除
-            </button>
-            <button 
-              onClick={() => setPeriodToDeleteId(null)} 
-              className="w-full bg-gray-100 text-gray-500 py-4 rounded-2xl font-black text-sm active:bg-gray-200 transition-colors"
-            >
-              取消
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  };
-
   const renderPeriodDrawer = (title: string, onCancel: () => void) => (
     <div className="fixed inset-0 z-[100] flex items-end justify-center animate-fade-in bg-black/40 backdrop-blur-[2px]">
       <div 
@@ -382,8 +353,8 @@ const PeriodsList: React.FC<PeriodsListProps> = () => {
               {Array.isArray(players) && players.map(p => {
                 const config = periodFormData.playerConfigs?.find(c => c.playerId === p.id) || {
                   playerId: p.id,
-                  type: PlayerType.PER_SESSION,
-                  fee: DEFAULT_SESSION_FEE
+                  type: p.type || PlayerType.PER_SESSION,
+                  fee: p.defaultFee ?? (p.type === PlayerType.MONTHLY ? DEFAULT_MONTHLY_FEE : p.type === PlayerType.HALF_MONTHLY ? DEFAULT_HALF_MONTHLY_FEE : DEFAULT_SESSION_FEE)
                 };
                 
                 const updateConfig = (updates: Partial<{type: PlayerType, fee: number}>) => {
@@ -395,7 +366,12 @@ const PeriodsList: React.FC<PeriodsListProps> = () => {
                     if (existingIndex > -1) {
                       newConfigs[existingIndex] = { ...newConfigs[existingIndex], ...updates };
                     } else {
-                      newConfigs.push({ playerId: p.id, type: PlayerType.PER_SESSION, fee: DEFAULT_SESSION_FEE, ...updates });
+                      newConfigs.push({ 
+                        playerId: p.id, 
+                        type: p.type || PlayerType.PER_SESSION, 
+                        fee: p.defaultFee ?? (p.type === PlayerType.MONTHLY ? DEFAULT_MONTHLY_FEE : p.type === PlayerType.HALF_MONTHLY ? DEFAULT_HALF_MONTHLY_FEE : DEFAULT_SESSION_FEE), 
+                        ...updates 
+                      });
                     }
                     return { ...prev, playerConfigs: newConfigs };
                   });
@@ -410,8 +386,11 @@ const PeriodsList: React.FC<PeriodsListProps> = () => {
                           <button
                             key={type}
                             onClick={() => {
-                              const defaultFee = type === PlayerType.PER_SESSION ? DEFAULT_SESSION_FEE : type === PlayerType.MONTHLY ? DEFAULT_MONTHLY_FEE : type === PlayerType.HALF_MONTHLY ? DEFAULT_HALF_MONTHLY_FEE : 0;
-                              updateConfig({ type, fee: defaultFee });
+                               let fee = config.fee;
+                               if (type === PlayerType.MONTHLY) fee = DEFAULT_MONTHLY_FEE;
+                               else if (type === PlayerType.HALF_MONTHLY) fee = DEFAULT_HALF_MONTHLY_FEE;
+                               else if (type === PlayerType.PER_SESSION) fee = DEFAULT_SESSION_FEE;
+                               updateConfig({ type, fee });
                             }}
                             className={`text-[9px] px-2 py-1 rounded-lg font-black transition-colors ${config.type === type ? 'bg-blue-600 text-white' : 'bg-gray-50 text-gray-400'}`}
                           >
@@ -605,7 +584,7 @@ const PeriodsList: React.FC<PeriodsListProps> = () => {
                   <div>
                     <div className="flex justify-between items-center mb-2 px-1">
                       <p className="text-[10px] font-black text-emerald-800/80 uppercase tracking-widest">👑 本期集资名单</p>
-                      <button onClick={(e) => { e.stopPropagation(); setEditingPeriodId(period.id); setPeriodFormData({ ...period, playerConfigs: players.map(p => period.playerConfigs?.find(c => c.playerId === p.id) || { playerId: p.id, type: PlayerType.PER_SESSION, fee: DEFAULT_SESSION_FEE }) }); }} className="text-[9px] text-emerald-900 font-black px-2 py-1 bg-white/30 backdrop-blur-md rounded-lg">修改配置</button>
+                      <button onClick={(e) => { e.stopPropagation(); setEditingPeriodId(period.id); setPeriodFormData({ ...period, playerConfigs: players.map(p => period.playerConfigs?.find(c => c.playerId === p.id) || { playerId: p.id, type: p.type || PlayerType.PER_SESSION, fee: p.defaultFee ?? (p.type === PlayerType.MONTHLY ? DEFAULT_MONTHLY_FEE : p.type === PlayerType.HALF_MONTHLY ? DEFAULT_HALF_MONTHLY_FEE : DEFAULT_SESSION_FEE) }) }); }} className="text-[9px] text-emerald-900 font-black px-2 py-1 bg-white/30 backdrop-blur-md rounded-lg">修改配置</button>
                     </div>
                     <div className="flex flex-wrap gap-1.5 p-3 bg-white/20 backdrop-blur-md rounded-2xl border border-white/30 shadow-sm">
                       {Array.isArray(period.funderIds) && period.funderIds.map(fid => (
@@ -650,12 +629,12 @@ const PeriodsList: React.FC<PeriodsListProps> = () => {
                                 <button 
                                   onClick={(e) => handleRemoveSession(e, period.id, session.id)} 
                                   className={`transition-all duration-200 rounded-lg flex items-center justify-center p-1.5 ${
-                                    sessionConfirmDeleteId === session.id 
+                                    sessionConfirm.confirmId === session.id 
                                       ? 'bg-red-500 text-white px-3' 
                                       : 'text-emerald-800/80 hover:text-red-500'
                                   }`}
                                 >
-                                  {sessionConfirmDeleteId === session.id ? (
+                                  {sessionConfirm.confirmId === session.id ? (
                                     <span className="text-[9px] font-black whitespace-nowrap">确认删除？</span>
                                   ) : (
                                     <Icons.Trash />
@@ -663,17 +642,15 @@ const PeriodsList: React.FC<PeriodsListProps> = () => {
                                 </button>
                              </div>
                           </div>
-                          <div className="flex justify-between items-end mt-2">
-                            <div className="flex flex-wrap gap-1 flex-1 pr-2">
-                              {Array.isArray(session.attendees) && session.attendees.map(a => (
-                                <span key={a.playerId} className="text-[9px] bg-white/20 backdrop-blur-md text-emerald-900 px-2 py-0.5 rounded border border-white/30">
-                                  {players.find(pl => pl.id === a.playerId)?.name} {(!a.fee || Number(a.fee) === 0) ? '(0)' : `(¥${a.fee})`}
-                                </span>
-                              ))}
-                            </div>
-                            <div className="text-[10px] text-emerald-800/60 font-black shrink-0">
-                              共 {(session.attendees || []).length} 人
-                            </div>
+                          <div className="flex flex-wrap gap-1">
+                            {Array.isArray(session.attendees) && session.attendees.map(a => (
+                              <span key={a.playerId} className="text-[9px] bg-white/20 backdrop-blur-md text-emerald-900 px-2 py-0.5 rounded border border-white/30">
+                                {players.find(pl => pl.id === a.playerId)?.name} {(!a.fee || Number(a.fee) === 0) ? '(0)' : `(¥${a.fee})`}
+                              </span>
+                            ))}
+                          </div>
+                          <div className="mt-2 text-right">
+                             <span className="text-[9px] font-black text-emerald-800/60">当前出席人数: {session.attendees?.length || 0}</span>
                           </div>
                         </div>
                       ))}
@@ -682,9 +659,17 @@ const PeriodsList: React.FC<PeriodsListProps> = () => {
                   <div className="pt-4 border-t border-gray-100 flex justify-center">
                     <button 
                       onClick={(e) => deletePeriod(e, period.id)}
-                      className="text-[10px] text-red-300 font-bold flex items-center gap-1 active:scale-95 transition-transform"
+                      className={`text-[10px] font-bold flex items-center justify-center gap-1.5 active:scale-95 transition-all w-full max-w-[140px] py-1.5 rounded-lg ${
+                        periodConfirm.confirmId === period.id
+                          ? 'bg-red-500 text-white'
+                          : 'text-red-400 bg-red-50 hover:bg-red-100 border border-red-100'
+                      }`}
                     >
-                      <Icons.Trash /> 永久移除此周期及记录
+                      {periodConfirm.confirmId === period.id ? (
+                        <>确认删除周期？</>
+                      ) : (
+                        <><Icons.Trash /> 永久移除此周期及记录</>
+                      )}
                     </button>
                   </div>
                 </div>
@@ -701,7 +686,6 @@ const PeriodsList: React.FC<PeriodsListProps> = () => {
       {isAddingPeriod && renderPeriodDrawer("创建结算周期", () => setIsAddingPeriod(false))}
       {editingPeriodId && renderPeriodDrawer("编辑周期配置", () => setEditingPeriodId(null))}
       {activeSessionPeriod && renderSessionForm(activeSessionPeriod)}
-      {periodToDeleteId && renderDeleteModal()}
 
       {(!Array.isArray(periods) || periods.length === 0) && (
         <div className="text-center py-24 text-emerald-800/60 bg-white/20 backdrop-blur-md rounded-[2.5rem] border border-white/30 m-4">

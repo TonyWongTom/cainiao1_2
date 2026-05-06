@@ -53,7 +53,7 @@ const PlayersList: React.FC<PlayersListProps> = () => {
         id: Date.now().toString(),
         name: formData.name.trim(),
         type: formData.type as PlayerType || PlayerType.PER_SESSION,
-        defaultFee: formData.defaultFee !== undefined ? formData.defaultFee : (formData.type === PlayerType.PER_SESSION ? DEFAULT_SESSION_FEE : formData.type === PlayerType.MONTHLY ? DEFAULT_MONTHLY_FEE : formData.type === PlayerType.HALF_MONTHLY ? DEFAULT_HALF_MONTHLY_FEE : 0),
+        defaultFee: formData.defaultFee !== undefined ? formData.defaultFee : (formData.type === PlayerType.MONTHLY ? DEFAULT_MONTHLY_FEE : formData.type === PlayerType.HALF_MONTHLY ? DEFAULT_HALF_MONTHLY_FEE : DEFAULT_SESSION_FEE),
         isFunder: !!formData.isFunder
       };
       setPlayers(prev => [...prev, newPlayer]);
@@ -150,7 +150,7 @@ const PlayersList: React.FC<PlayersListProps> = () => {
           id: `imp-${Date.now()}-${i}`,
           name: name,
           type: type,
-          defaultFee: Number(feeStr) || 0,
+          defaultFee: Number(feeStr) || (type === PlayerType.MONTHLY ? DEFAULT_MONTHLY_FEE : type === PlayerType.HALF_MONTHLY ? DEFAULT_HALF_MONTHLY_FEE : DEFAULT_SESSION_FEE),
           isFunder: isFunder
         });
       }
@@ -188,7 +188,10 @@ const PlayersList: React.FC<PlayersListProps> = () => {
               value={formData.type} 
               onChange={e => {
                 const type = e.target.value as PlayerType;
-                const fee = type === PlayerType.PER_SESSION ? DEFAULT_SESSION_FEE : type === PlayerType.MONTHLY ? DEFAULT_MONTHLY_FEE : type === PlayerType.HALF_MONTHLY ? DEFAULT_HALF_MONTHLY_FEE : (formData.defaultFee || 0);
+                let fee = formData.defaultFee;
+                if (type === PlayerType.MONTHLY) fee = DEFAULT_MONTHLY_FEE;
+                else if (type === PlayerType.HALF_MONTHLY) fee = DEFAULT_HALF_MONTHLY_FEE;
+                else if (type === PlayerType.PER_SESSION) fee = DEFAULT_SESSION_FEE;
                 setFormData({ ...formData, type, defaultFee: fee });
               }} 
               className="w-full border border-gray-200 rounded-lg p-2 text-sm bg-gray-50 outline-none font-bold"

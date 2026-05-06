@@ -1,7 +1,7 @@
 {
   "name": "copy-of-菜鸟基地小帮手",
   "private": true,
-  "version": "1.0.4",
+  "version": "1.0.2",
   "type": "module",
   "scripts": {
     "dev": "PORT=3000 tsx server.ts",

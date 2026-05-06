@@ -1,5 +1,5 @@
 // Update trigger for Cloud Run deployment: fixed wss protocol issue with Turso 
-// Version: 1.0.3
+// Version: 1.0.1
 import express from 'express';
 import { createServer as createViteServer } from 'vite';
 import path from 'path';
@@ -64,15 +64,6 @@ async function startServer() {
   }
 
   const apiRouter = express.Router();
-
-  // Disable caching for all API routes
-  apiRouter.use((req, res, next) => {
-    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
-    res.setHeader('Pragma', 'no-cache');
-    res.setHeader('Expires', '0');
-    res.setHeader('Surrogate-Control', 'no-store');
-    next();
-  });
 
   const authMiddleware = (req: express.Request, res: express.Response, next: express.NextFunction) => {
     if (req.headers['x-api-password'] === ACCESS_PASSWORD || req.headers['x-api-password'] === 'cainiao') return next();
