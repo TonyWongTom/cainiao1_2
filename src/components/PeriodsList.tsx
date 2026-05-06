@@ -260,8 +260,16 @@ const PeriodsList: React.FC<PeriodsListProps> = () => {
     const currentPeriod = periods.find(p => p.id === periodId);
     const isFunder = currentPeriod?.funderIds?.includes(player.id);
     const periodConfig = currentPeriod?.playerConfigs?.find(c => c.playerId === player.id);
-    const periodType = periodConfig?.type || PlayerType.PER_SESSION;
-    const periodFee = periodConfig?.fee ?? DEFAULT_SESSION_FEE;
+    const periodType = periodConfig?.type || player.type || PlayerType.PER_SESSION;
+    
+    let periodFee = periodConfig?.fee;
+    if (periodFee === undefined) {
+      if (periodType === player.type && player.defaultFee !== undefined && player.defaultFee !== null) {
+        periodFee = player.defaultFee;
+      } else {
+        periodFee = periodType === PlayerType.MONTHLY ? DEFAULT_MONTHLY_FEE : periodType === PlayerType.HALF_MONTHLY ? DEFAULT_HALF_MONTHLY_FEE : DEFAULT_SESSION_FEE;
+      }
+    }
 
     if (isFunder) return 0;
     
@@ -351,11 +359,17 @@ const PeriodsList: React.FC<PeriodsListProps> = () => {
             </p>
             <div className="space-y-3 max-h-60 overflow-y-auto pr-1">
               {Array.isArray(players) && players.map(p => {
-                const config = periodFormData.playerConfigs?.find(c => c.playerId === p.id) || {
-                  playerId: p.id,
-                  type: p.type || PlayerType.PER_SESSION,
-                  fee: p.defaultFee ?? (p.type === PlayerType.MONTHLY ? DEFAULT_MONTHLY_FEE : p.type === PlayerType.HALF_MONTHLY ? DEFAULT_HALF_MONTHLY_FEE : DEFAULT_SESSION_FEE)
-                };
+                const c = periodFormData.playerConfigs?.find(c => c.playerId === p.id);
+                const type = c?.type || p.type || PlayerType.PER_SESSION;
+                let fee = c?.fee;
+                if (fee === undefined) {
+                  if (type === p.type && p.defaultFee !== undefined && p.defaultFee !== null) {
+                    fee = p.defaultFee;
+                  } else {
+                    fee = type === PlayerType.MONTHLY ? DEFAULT_MONTHLY_FEE : type === PlayerType.HALF_MONTHLY ? DEFAULT_HALF_MONTHLY_FEE : DEFAULT_SESSION_FEE;
+                  }
+                }
+                const config = { playerId: p.id, type, fee };
                 
                 const updateConfig = (updates: Partial<{type: PlayerType, fee: number}>) => {
                   setPeriodFormData(prev => {
