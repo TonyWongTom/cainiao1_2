@@ -139,7 +139,10 @@ async function startServer() {
   apiRouter.delete('/players/:id', authMiddleware, async (req, res) => {
     try {
       if (!dbClient) throw new Error('DB not initialized');
-      await dbClient.execute({ sql: "DELETE FROM members WHERE id = ?", args: [req.params.id] });
+      await dbClient.batch([
+        { sql: "DELETE FROM member_cycle_configs WHERE player_id = ?", args: [req.params.id] },
+        { sql: "DELETE FROM members WHERE id = ?", args: [req.params.id] }
+      ], "write");
       res.json({ success: true });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -247,8 +250,9 @@ async function startServer() {
       stmts.push({ sql: "DELETE FROM member_cycle_configs WHERE cycle_id = ?", args: [cycleId] });
       for (const conf of data.playerConfigs || []) {
         stmts.push({
-          sql: `INSERT INTO member_cycle_configs (cycle_id, player_id, type, has_paid_base) VALUES (?, ?, ?, ?)`,
-          args: [cycleId, conf.playerId, conf.type || '', conf.hasPaidBase ? 1 : 0]
+          sql: `INSERT INTO member_cycle_configs (cycle_id, player_id, type, has_paid_base) 
+                SELECT ?, id, ?, ? FROM members WHERE id = ?`,
+          args: [cycleId, conf.type || '', conf.hasPaidBase ? 1 : 0, conf.playerId]
         });
       }
 
@@ -265,9 +269,9 @@ async function startServer() {
       if (!dbClient) throw new Error('DB not initialized');
       const cycleId = req.params.id;
       await dbClient.batch([
-        { sql: "DELETE FROM cycles WHERE id = ?", args: [cycleId] },
         { sql: "DELETE FROM sessions WHERE cycle_id = ?", args: [cycleId] },
-        { sql: "DELETE FROM member_cycle_configs WHERE cycle_id = ?", args: [cycleId] }
+        { sql: "DELETE FROM member_cycle_configs WHERE cycle_id = ?", args: [cycleId] },
+        { sql: "DELETE FROM cycles WHERE id = ?", args: [cycleId] }
       ], "write");
       res.json({ success: true });
     } catch (err: any) {
