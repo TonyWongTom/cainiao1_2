@@ -57,9 +57,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   }, [notification]);
 
-  const fetchFromDB = useCallback(async () => {
+  const fetchFromDB = useCallback(async (background = false) => {
     try {
-      setIsLoading(true);
+      if (!background) setIsLoading(true);
       const [fetchedPlayers, fetchedPeriods] = await Promise.all([
         dbService.getPlayers(),
         dbService.getPeriods()
@@ -80,15 +80,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     } catch (err: any) {
       setError(err.message);
     } finally {
-      setIsLoading(false);
+      if (!background) setIsLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    // Only fetch on mount if cache is empty
-    if (initialLoading) {
-      fetchFromDB();
-    }
+    // Always fetch from DB on mount to get latest changes from other devices.
+    // If we have cached data, fetch in background without showing loading spinner.
+    fetchFromDB(!initialLoading);
   }, [initialLoading, fetchFromDB]);
 
   const refreshData = async () => {
