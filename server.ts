@@ -185,8 +185,8 @@ async function startServer() {
             cyclesMap[cId].sessions.push({
               id: String(row.id || ''),
               date: row.session_date,
-              players: row.attendees ? JSON.parse(row.attendees as string) : [],
-              extraCourtCost: Number(row.extra_court_fee) || 0
+              attendees: row.attendees ? JSON.parse(row.attendees as string) : [],
+              sessionCost: Number(row.extra_court_fee) || 0
             });
           }
         }
@@ -243,7 +243,7 @@ async function startServer() {
       for (const session of data.sessions || []) {
         stmts.push({
           sql: `INSERT INTO sessions (id, cycle_id, session_date, attendees, extra_court_fee) VALUES (?, ?, ?, ?, ?)`,
-          args: [session.id, cycleId, session.date || '', JSON.stringify(session.players || []), Number(session.extraCourtCost) || 0]
+          args: [session.id, cycleId, session.date || '', JSON.stringify(session.attendees || []), Number(session.sessionCost) || 0]
         });
       }
 
