@@ -34,6 +34,13 @@ function useDoubleConfirm(timeoutMs = 3000) {
   return { confirmId, requestConfirm };
 }
 
+const getTypeOrder = (type?: PlayerType) => {
+  if (type === PlayerType.MONTHLY) return 1;
+  if (type === PlayerType.HALF_MONTHLY) return 2;
+  if (type === PlayerType.PER_SESSION) return 3;
+  return 4;
+};
+
 interface PeriodsListProps {
 }
 
@@ -358,7 +365,16 @@ const PeriodsList: React.FC<PeriodsListProps> = () => {
               👤 人员性质及单价设置 (本期生效)
             </p>
             <div className="space-y-3 max-h-60 overflow-y-auto pr-1">
-              {Array.isArray(players) && players.map(p => {
+              {Array.isArray(players) && [...players].sort((a, b) => {
+                const aIsFunder = Boolean(periodFormData.funderIds?.includes(a.id) || a.isFunder);
+                const bIsFunder = Boolean(periodFormData.funderIds?.includes(b.id) || b.isFunder);
+                if (aIsFunder !== bIsFunder) {
+                  return aIsFunder ? -1 : 1;
+                }
+                const aType = periodFormData.playerConfigs?.find(c => c.playerId === a.id)?.type || a.type || PlayerType.PER_SESSION;
+                const bType = periodFormData.playerConfigs?.find(c => c.playerId === b.id)?.type || b.type || PlayerType.PER_SESSION;
+                return getTypeOrder(aType) - getTypeOrder(bType);
+              }).map(p => {
                 const c = periodFormData.playerConfigs?.find(c => c.playerId === p.id);
                 const type = c?.type || p.type || PlayerType.PER_SESSION;
                 let fee = c?.fee;
@@ -467,7 +483,18 @@ const PeriodsList: React.FC<PeriodsListProps> = () => {
                 />
               </div>
               <div className="flex flex-wrap gap-1.5 p-3 bg-gray-50 rounded-2xl border border-gray-100 max-h-48 overflow-y-auto">
-                {Array.isArray(players) && players
+                {Array.isArray(players) && [...players]
+                  .sort((a, b) => {
+                    const currentPeriod = periods.find(p => p.id === periodId);
+                    const aIsFunder = Boolean(currentPeriod?.funderIds?.includes(a.id) || a.isFunder);
+                    const bIsFunder = Boolean(currentPeriod?.funderIds?.includes(b.id) || b.isFunder);
+                    if (aIsFunder !== bIsFunder) {
+                      return aIsFunder ? -1 : 1;
+                    }
+                    const aType = currentPeriod?.playerConfigs?.find(c => c.playerId === a.id)?.type || a.type || PlayerType.PER_SESSION;
+                    const bType = currentPeriod?.playerConfigs?.find(c => c.playerId === b.id)?.type || b.type || PlayerType.PER_SESSION;
+                    return getTypeOrder(aType) - getTypeOrder(bType);
+                  })
                   .filter(p => !sessionSearchQuery || p.name.toLowerCase().includes(sessionSearchQuery.toLowerCase()))
                   .map(p => {
                   const isSelected = selectedAttendees.find(a => a.playerId === p.id);

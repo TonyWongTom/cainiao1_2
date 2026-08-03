@@ -4,6 +4,13 @@ import { Player, PlayerType, Period } from '../types';
 import { Icons, DEFAULT_SESSION_FEE, DEFAULT_MONTHLY_FEE, DEFAULT_HALF_MONTHLY_FEE } from '../constants';
 import { useAppContext } from '../context/AppContext';
 
+const getTypeOrder = (type?: PlayerType) => {
+  if (type === PlayerType.MONTHLY) return 1;
+  if (type === PlayerType.HALF_MONTHLY) return 2;
+  if (type === PlayerType.PER_SESSION) return 3;
+  return 4;
+};
+
 interface PlayersListProps {
 }
 
@@ -275,7 +282,14 @@ const PlayersList: React.FC<PlayersListProps> = () => {
       )}
 
       <div className="space-y-3">
-        {Array.isArray(players) && [...players].sort((a,b) => (a.isFunder === b.isFunder ? 0 : a.isFunder ? -1 : 1)).map(player => {
+        {Array.isArray(players) && [...players].sort((a, b) => {
+          const aIsFunder = Boolean(isCurrentlyFunder(a.id) || a.isFunder);
+          const bIsFunder = Boolean(isCurrentlyFunder(b.id) || b.isFunder);
+          if (aIsFunder !== bIsFunder) {
+            return aIsFunder ? -1 : 1;
+          }
+          return getTypeOrder(a.type) - getTypeOrder(b.type);
+        }).map(player => {
           if (editingId === player.id) {
             return (
               <div key={player.id} className="animate-in slide-in-from-top-1 duration-200">
