@@ -12,6 +12,17 @@ interface DashboardProps {
 const Dashboard: React.FC<DashboardProps> = ({ activePeriod, onPeriodChange }) => {
   const { players, periods } = useAppContext();
 
+  const sortedPeriods = useMemo(() => {
+    if (!Array.isArray(periods)) return [];
+    return [...periods].sort((a, b) => {
+      const comp = (b.startDate || '').localeCompare(a.startDate || '');
+      if (comp !== 0) return comp;
+      const aOngoing = !a.endDate ? 1 : 0;
+      const bOngoing = !b.endDate ? 1 : 0;
+      return bOngoing - aOngoing;
+    });
+  }, [periods]);
+
   // Total fees collected
   const grossFees = (activePeriod?.sessions || []).reduce((acc, s) => acc + (s.attendees || []).reduce((sum, a) => sum + a.fee, 0), 0) || 0;
   // Total extra session costs
@@ -43,12 +54,12 @@ const Dashboard: React.FC<DashboardProps> = ({ activePeriod, onPeriodChange }) =
             onChange={(e) => onPeriodChange(e.target.value)}
             className="w-full bg-white/20 backdrop-blur-md border border-white/30 rounded-2xl p-4 text-xs font-black text-emerald-900 outline-none appearance-none shadow-sm cursor-pointer"
           >
-            {Array.isArray(periods) && periods.map((p) => (
+            {sortedPeriods.map((p) => (
               <option key={p.id} value={p.id}>
                 {p.name}
               </option>
             ))}
-            {(!Array.isArray(periods) || periods.length === 0) && (
+            {sortedPeriods.length === 0 && (
               <option value="" disabled>暂无结算周期</option>
             )}
           </select>

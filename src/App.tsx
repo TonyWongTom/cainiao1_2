@@ -21,7 +21,15 @@ const MainApp: React.FC = () => {
     if (selectedPeriodId && Array.isArray(periods)) {
       return periods.find(p => p.id === selectedPeriodId) || null;
     }
-    return Array.isArray(periods) && periods.length > 0 ? periods[0] : null;
+    if (!Array.isArray(periods) || periods.length === 0) return null;
+    const sorted = [...periods].sort((a, b) => {
+      const comp = (b.startDate || '').localeCompare(a.startDate || '');
+      if (comp !== 0) return comp;
+      const aOngoing = !a.endDate ? 1 : 0;
+      const bOngoing = !b.endDate ? 1 : 0;
+      return bOngoing - aOngoing;
+    });
+    return sorted[0];
   }, [periods, selectedPeriodId]);
 
   const renderView = () => {
