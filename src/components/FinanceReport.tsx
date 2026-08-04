@@ -1,8 +1,15 @@
 
-import React from 'react';
+import React, { useMemo } from 'react';
 import { Period, Player, PlayerType } from '../types';
 import { formatMonthDay } from '../utils/dateUtils';
 import { useAppContext } from '../context/AppContext';
+
+const getTypeOrder = (type?: PlayerType) => {
+  if (type === PlayerType.MONTHLY) return 1;
+  if (type === PlayerType.HALF_MONTHLY) return 2;
+  if (type === PlayerType.PER_SESSION) return 3;
+  return 4;
+};
 
 interface FinanceReportProps {
   initialPeriodId: string | null;
@@ -12,9 +19,20 @@ interface FinanceReportProps {
 const FinanceReport: React.FC<FinanceReportProps> = ({ initialPeriodId, onPeriodChange }) => {
   const { players, periods } = useAppContext();
 
+  const sortedPeriods = useMemo(() => {
+    if (!Array.isArray(periods)) return [];
+    return [...periods].sort((a, b) => {
+      const comp = (b.startDate || '').localeCompare(a.startDate || '');
+      if (comp !== 0) return comp;
+      const aOngoing = !a.endDate ? 1 : 0;
+      const bOngoing = !b.endDate ? 1 : 0;
+      return bOngoing - aOngoing;
+    });
+  }, [periods]);
+
   const selectedPeriod = initialPeriodId && Array.isArray(periods)
     ? periods.find(p => p.id === initialPeriodId) 
-    : (Array.isArray(periods) && periods.length > 0 ? periods[0] : null);
+    : (sortedPeriods.length > 0 ? sortedPeriods[0] : null);
 
   const calculatePeriodStats = (period: Period) => {
     const grossIncome = Array.isArray(period.sessions) ? period.sessions.reduce((acc, s) => acc + (Array.isArray(s.attendees) ? s.attendees.reduce((sum, a) => sum + (a.fee || 0), 0) : 0), 0) : 0;
@@ -77,7 +95,7 @@ const FinanceReport: React.FC<FinanceReportProps> = ({ initialPeriodId, onPeriod
               onChange={(e) => onPeriodChange(e.target.value)}
               className="w-full bg-white/20 backdrop-blur-md border border-white/30 rounded-2xl p-4 text-xs font-black text-emerald-900 outline-none appearance-none shadow-sm cursor-pointer"
             >
-              {Array.isArray(periods) && periods.map((p) => (
+              {sortedPeriods.map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.name} ({formatMonthDay(p.startDate)})
                 </option>
@@ -169,24 +187,42 @@ const FinanceReport: React.FC<FinanceReportProps> = ({ initialPeriodId, onPeriod
                         <span className="text-right">总实付</span>
                       </div>
                       <div className="divide-y divide-white/20">
-                        {Object.entries(stats.playerBreakdown).map(([pid, data]) => {
-                          const playerName = players.find(p => p.id === pid)?.name || '未知';
-                          const isFunder = Array.isArray(selectedPeriod.funderIds) && selectedPeriod.funderIds.includes(pid);
-                          return (
-                            <div key={pid} className="grid grid-cols-3 px-4 py-3 items-center">
-                              <div className="flex items-center gap-1.5 overflow-hidden">
-                                <span className="text-xs font-bold text-emerald-900 truncate">{playerName}</span>
-                                {isFunder && <span className="text-[8px] bg-amber-500/20 text-amber-800 px-1 rounded font-black shrink-0">👑</span>}
+                        {Object.entries(stats.playerBreakdown)
+                          .sort(([aId, aData], [bId, bData]) => {
+                            const pA = players.find(p => p.id === aId);
+                            const pB = players.find(p => p.id === bId);
+                            const aIsFunder = Boolean(selectedPeriod.funderIds?.includes(aId) || pA?.isFunder);
+                            const bIsFunder = Boolean(selectedPeriod.funderIds?.includes(bId) || pB?.isFunder);
+                            if (aIsFunder !== bIsFunder) {
+                              return aIsFunder ? -1 : 1;
+                            }
+                            const aType = selectedPeriod.playerConfigs?.find(c => c.playerId === aId)?.type || pA?.type || PlayerType.PER_SESSION;
+                            const bType = selectedPeriod.playerConfigs?.find(c => c.playerId === bId)?.type || pB?.type || PlayerType.PER_SESSION;
+                            const typeOrderA = getTypeOrder(aType);
+                            const typeOrderB = getTypeOrder(bType);
+                            if (typeOrderA !== typeOrderB) {
+                                return typeOrderA - typeOrderB;
+                            }
+                            return bData.count - aData.count;
+                          })
+                          .map(([pid, data]) => {
+                            const playerName = players.find(p => p.id === pid)?.name || '未知';
+                            const isFunder = Array.isArray(selectedPeriod.funderIds) && selectedPeriod.funderIds.includes(pid);
+                            return (
+                              <div key={pid} className="grid grid-cols-3 px-4 py-3 items-center">
+                                <div className="flex items-center gap-1.5 overflow-hidden">
+                                  <span className="text-xs font-bold text-emerald-900 truncate">{playerName}</span>
+                                  {isFunder && <span className="text-[8px] bg-amber-500/20 text-amber-800 px-1 rounded font-black shrink-0">👑</span>}
+                                </div>
+                                <div className="text-center">
+                                  <span className="text-xs font-black text-emerald-800 bg-white/20 px-2 py-0.5 rounded-full">{data.count}次</span>
+                                </div>
+                                <div className="text-right">
+                                  <span className="text-xs font-black text-emerald-900">¥{data.totalPaid.toFixed(2)}</span>
+                                </div>
                               </div>
-                              <div className="text-center">
-                                <span className="text-xs font-black text-emerald-800 bg-white/20 px-2 py-0.5 rounded-full">{data.count}次</span>
-                              </div>
-                              <div className="text-right">
-                                <span className="text-xs font-black text-emerald-900">¥{data.totalPaid.toFixed(2)}</span>
-                              </div>
-                            </div>
-                          );
-                        })}
+                            );
+                          })}
                       </div>
                     </div>
                   </div>
