@@ -653,7 +653,7 @@ const PeriodsList: React.FC<PeriodsListProps> = () => {
                       </button>
                     </div>
                     <div className="space-y-3">
-                      {Array.isArray(period.sessions) && period.sessions.map(session => (
+                      {Array.isArray(period.sessions) && [...period.sessions].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()).map(session => (
                         <div key={session.id} className="bg-white/20 backdrop-blur-md p-4 rounded-2xl border border-white/30 shadow-sm">
                           <div className="flex justify-between items-center mb-2">
                              <div className="flex flex-col">
