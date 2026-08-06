@@ -53,6 +53,9 @@ const PeriodsList: React.FC<PeriodsListProps> = () => {
   const [activeSessionPeriod, setActiveSessionPeriod] = useState<string | null>(null);
   const [sessionSearchQuery, setSessionSearchQuery] = useState('');
   const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
+  const [unmatchedPasteNames, setUnmatchedPasteNames] = useState<string[]>([]);
+  const [isAddingPastePlayer, setIsAddingPastePlayer] = useState(false);
+  const [pastePlayerFormData, setPastePlayerFormData] = useState<Partial<Player>>({ name: '', type: PlayerType.PER_SESSION, defaultFee: DEFAULT_SESSION_FEE, isFunder: false });
   
   const periodConfirm = useDoubleConfirm(3000);
   const sessionConfirm = useDoubleConfirm(3000);
@@ -452,6 +455,124 @@ const PeriodsList: React.FC<PeriodsListProps> = () => {
     </div>
   );
 
+  const handleSavePastePlayer = () => {
+    if (!pastePlayerFormData.name) return;
+    const newPlayer: Player = {
+      id: Date.now().toString() + Math.random().toString(36).substring(2, 9),
+      name: pastePlayerFormData.name.trim(),
+      type: pastePlayerFormData.type as PlayerType || PlayerType.PER_SESSION,
+      defaultFee: Number(pastePlayerFormData.defaultFee) || DEFAULT_SESSION_FEE,
+      isFunder: Boolean(pastePlayerFormData.isFunder)
+    };
+    
+    setPlayers(prev => [...prev, newPlayer]);
+    
+    if (activeSessionPeriod) {
+        setSelectedAttendees(prev => {
+            if (prev.find(a => a.playerId === newPlayer.id)) return prev;
+            return [...prev, { playerId: newPlayer.id, fee: calculatePotentialFee(newPlayer, activeSessionPeriod) }];
+        });
+    }
+
+    const nextUnmatched = unmatchedPasteNames.slice(1);
+    if (nextUnmatched.length > 0) {
+        setUnmatchedPasteNames(nextUnmatched);
+        setPastePlayerFormData({
+            name: nextUnmatched[0],
+            type: PlayerType.PER_SESSION,
+            defaultFee: DEFAULT_SESSION_FEE,
+            isFunder: false
+        });
+    } else {
+        setIsAddingPastePlayer(false);
+        setUnmatchedPasteNames([]);
+    }
+  };
+
+  const handleSkipPastePlayer = () => {
+    const nextUnmatched = unmatchedPasteNames.slice(1);
+    if (nextUnmatched.length > 0) {
+        setUnmatchedPasteNames(nextUnmatched);
+        setPastePlayerFormData({
+            name: nextUnmatched[0],
+            type: PlayerType.PER_SESSION,
+            defaultFee: DEFAULT_SESSION_FEE,
+            isFunder: false
+        });
+    } else {
+        setIsAddingPastePlayer(false);
+        setUnmatchedPasteNames([]);
+    }
+  };
+
+  const renderPastePlayerModal = () => (
+    <div className="fixed inset-0 z-[130] flex items-center justify-center p-6 animate-fade-in bg-black/60 backdrop-blur-[10px]">
+      <div className="w-full max-w-sm bg-white backdrop-blur-[20px] rounded-[2.5rem] border border-white/50 p-6 shadow-2xl animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
+        <h3 className="text-lg font-black text-emerald-900 mb-2">✨ 发现新成员</h3>
+        <p className="text-xs text-gray-500 mb-6 font-bold">是否将 "{pastePlayerFormData.name}" 添加至系统名单？</p>
+        <div className="space-y-4">
+          <div>
+            <label className="block text-[10px] text-gray-400 mb-1 font-black uppercase tracking-widest">姓名</label>
+            <input 
+              type="text" 
+              value={pastePlayerFormData.name} 
+              onChange={e => setPastePlayerFormData({ ...pastePlayerFormData, name: e.target.value })} 
+              className="w-full bg-gray-50 border border-gray-100 rounded-xl p-3 text-sm font-bold focus:ring-2 focus:ring-emerald-500 outline-none" 
+              placeholder="请输入姓名" 
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-[10px] text-gray-400 mb-1 font-black uppercase tracking-widest">性质</label>
+              <select 
+                value={pastePlayerFormData.type} 
+                onChange={e => {
+                  const type = e.target.value as PlayerType;
+                  let fee = pastePlayerFormData.defaultFee;
+                  if (type === PlayerType.MONTHLY) fee = DEFAULT_MONTHLY_FEE;
+                  else if (type === PlayerType.HALF_MONTHLY) fee = DEFAULT_HALF_MONTHLY_FEE;
+                  else if (type === PlayerType.PER_SESSION) fee = DEFAULT_SESSION_FEE;
+                  setPastePlayerFormData({ ...pastePlayerFormData, type, defaultFee: fee });
+                }} 
+                className="w-full bg-gray-50 border border-gray-100 rounded-xl p-3 text-sm font-bold outline-none"
+              >
+                <option value={PlayerType.MONTHLY}>包月</option>
+                <option value={PlayerType.HALF_MONTHLY}>包半月</option>
+                <option value={PlayerType.PER_SESSION}>按次</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-[10px] text-gray-400 mb-1 font-black uppercase tracking-widest">单次(元)</label>
+              <input 
+                type="number" 
+                value={pastePlayerFormData.defaultFee === '' as any ? '' : pastePlayerFormData.defaultFee} 
+                onChange={e => setPastePlayerFormData({ ...pastePlayerFormData, defaultFee: e.target.value === '' ? '' as any : Number(e.target.value) })} 
+                className="w-full bg-gray-50 border border-gray-100 rounded-xl p-3 text-sm outline-none font-mono font-bold" 
+              />
+            </div>
+          </div>
+          <div className="flex items-center gap-2 p-3 bg-amber-50 rounded-xl border border-amber-100">
+            <input 
+              type="checkbox" 
+              checked={pastePlayerFormData.isFunder} 
+              onChange={e => setPastePlayerFormData({ ...pastePlayerFormData, isFunder: e.target.checked })} 
+              id="pasteIsFunder" 
+              className="w-5 h-5 text-amber-600 rounded-md border-amber-300 focus:ring-amber-500" 
+            />
+            <label htmlFor="pasteIsFunder" className="text-[10px] font-bold text-amber-800 cursor-pointer select-none leading-tight">
+              核心集资备选人<br/>
+              <span className="font-normal opacity-70">开启后，可勾选为此周期的预付包月人</span>
+            </label>
+          </div>
+          <div className="flex gap-3 pt-4">
+            <button type="button" onClick={handleSavePastePlayer} className="flex-[2] bg-emerald-500 text-white py-3.5 rounded-2xl font-black text-sm shadow-[0_0_15px_rgba(16,185,129,0.5)] ring-1 ring-emerald-300 active:scale-95 transition-all">保存并添加</button>
+            <button type="button" onClick={handleSkipPastePlayer} className="flex-1 bg-gray-100 text-gray-500 py-3.5 rounded-2xl font-black text-sm active:bg-gray-200">跳过</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+
   const renderSessionForm = (periodId: string) => {
     const currentSubtotal = (selectedAttendees || []).reduce((sum, a) => sum + (a.fee || 0), 0);
 
@@ -464,29 +585,56 @@ const PeriodsList: React.FC<PeriodsListProps> = () => {
         const lines = pasteText.split(/\r?\n/);
         let newSelected = [...selectedAttendees];
         let matchCount = 0;
+        let unmatched: string[] = [];
         
         lines.forEach(line => {
           if (!line.trim()) return;
           const normalizedInput = line.replace(/^\s*\d+[\.、\s]+/, '').replace(/[^\u4e00-\u9fa5a-zA-Z0-9]/g, '').toLowerCase();
           if (!normalizedInput) return;
 
-          const matchedPlayer = players.find(p => {
-            const normalizedPlayer = p.name.replace(/[^\u4e00-\u9fa5a-zA-Z0-9]/g, '').toLowerCase();
-            return normalizedPlayer === normalizedInput || normalizedPlayer.includes(normalizedInput) || normalizedInput.includes(normalizedPlayer);
+          const rawName = line.replace(/^\s*\d+[\.、\s]+/, '').trim();
+
+          let bestMatch = players.find(p => {
+            const normP = p.name.replace(/[^\u4e00-\u9fa5a-zA-Z0-9]/g, '').toLowerCase();
+            return normP && normP === normalizedInput;
           });
 
-          if (matchedPlayer && !newSelected.find(a => a.playerId === matchedPlayer.id)) {
-            const fee = calculatePotentialFee(matchedPlayer, periodId);
-            newSelected.push({
-              playerId: matchedPlayer.id,
-              fee
+          if (!bestMatch) {
+            bestMatch = players.find(p => {
+              const normP = p.name.replace(/[^\u4e00-\u9fa5a-zA-Z0-9]/g, '').toLowerCase();
+              return normP && normP.length > 1 && normalizedInput.length > 1 && (normalizedInput.includes(normP) || normP.includes(normalizedInput));
             });
-            matchCount++;
+          }
+
+          if (bestMatch) {
+            if (!newSelected.find(a => a.playerId === bestMatch!.id)) {
+                const fee = calculatePotentialFee(bestMatch, periodId);
+                newSelected.push({
+                playerId: bestMatch.id,
+                fee
+                });
+                matchCount++;
+            }
+          } else {
+              if (rawName && !unmatched.includes(rawName)) {
+                  unmatched.push(rawName);
+              }
           }
         });
         
         setSelectedAttendees(newSelected);
         setSessionSearchQuery('');
+
+        if (unmatched.length > 0) {
+            setUnmatchedPasteNames(unmatched);
+            setPastePlayerFormData({
+                name: unmatched[0],
+                type: PlayerType.PER_SESSION,
+                defaultFee: DEFAULT_SESSION_FEE,
+                isFunder: false
+            });
+            setIsAddingPastePlayer(true);
+        }
       }
     };
 
@@ -763,6 +911,7 @@ const PeriodsList: React.FC<PeriodsListProps> = () => {
       {isAddingPeriod && renderPeriodDrawer("创建结算周期", () => setIsAddingPeriod(false))}
       {editingPeriodId && renderPeriodDrawer("编辑周期配置", () => setEditingPeriodId(null))}
       {activeSessionPeriod && renderSessionForm(activeSessionPeriod)}
+      {isAddingPastePlayer && renderPastePlayerModal()}
 
       {(!Array.isArray(periods) || periods.length === 0) && (
         <div className="text-center py-24 text-emerald-800/60 bg-white/20 backdrop-blur-md rounded-[2.5rem] border border-white/30 m-4">
