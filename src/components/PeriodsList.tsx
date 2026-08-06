@@ -326,11 +326,11 @@ const PeriodsList: React.FC<PeriodsListProps> = () => {
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1 ml-1">开始日期</label>
-              <DatePicker locale="zh-CN" selected={stringToDate(periodFormData.startDate)} onChange={(date: any) => setPeriodFormData({...periodFormData, startDate: dateToString(date)})} dateFormat="yyyy年MM月dd日" showMonthDropdown showYearDropdown dropdownMode="select" className="w-full bg-gray-50 border border-gray-100 rounded-2xl p-4 text-sm font-bold outline-none" />
+              <DatePicker locale="zh-CN" selected={stringToDate(periodFormData.startDate)} onChange={(date: any) => setPeriodFormData({...periodFormData, startDate: dateToString(date)})} dateFormat="yyyy年MM月dd日" showMonthDropdown showYearDropdown dropdownMode="select" withPortal portalId="root-portal" className="w-full bg-gray-50 border border-gray-100 rounded-2xl p-4 text-sm font-bold outline-none" />
             </div>
             <div>
               <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1 ml-1">结束日期 (选填)</label>
-              <DatePicker locale="zh-CN" selected={stringToDate(periodFormData.endDate)} onChange={(date: any) => setPeriodFormData({...periodFormData, endDate: dateToString(date)})} dateFormat="yyyy年MM月dd日" showMonthDropdown showYearDropdown dropdownMode="select" placeholderText="进行中..." className="w-full bg-gray-50 border border-gray-100 rounded-2xl p-4 text-sm font-bold outline-none" isClearable />
+              <DatePicker locale="zh-CN" selected={stringToDate(periodFormData.endDate)} onChange={(date: any) => setPeriodFormData({...periodFormData, endDate: dateToString(date)})} dateFormat="yyyy年MM月dd日" showMonthDropdown showYearDropdown dropdownMode="select" placeholderText="进行中..." withPortal portalId="root-portal" className="w-full bg-gray-50 border border-gray-100 rounded-2xl p-4 text-sm font-bold outline-none" isClearable />
             </div>
           </div>
           <div className="bg-red-50 p-4 rounded-2xl border border-red-100">
@@ -455,6 +455,41 @@ const PeriodsList: React.FC<PeriodsListProps> = () => {
   const renderSessionForm = (periodId: string) => {
     const currentSubtotal = (selectedAttendees || []).reduce((sum, a) => sum + (a.fee || 0), 0);
 
+    const handleSessionPaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
+      const pasteText = e.clipboardData.getData('text');
+      if (!pasteText) return;
+      
+      if (pasteText.includes('\n') || /\d+[\.、\s]/.test(pasteText)) {
+        e.preventDefault();
+        const lines = pasteText.split(/\r?\n/);
+        let newSelected = [...selectedAttendees];
+        let matchCount = 0;
+        
+        lines.forEach(line => {
+          if (!line.trim()) return;
+          const normalizedInput = line.replace(/^\s*\d+[\.、\s]+/, '').replace(/[^\u4e00-\u9fa5a-zA-Z0-9]/g, '').toLowerCase();
+          if (!normalizedInput) return;
+
+          const matchedPlayer = players.find(p => {
+            const normalizedPlayer = p.name.replace(/[^\u4e00-\u9fa5a-zA-Z0-9]/g, '').toLowerCase();
+            return normalizedPlayer === normalizedInput || normalizedPlayer.includes(normalizedInput) || normalizedInput.includes(normalizedPlayer);
+          });
+
+          if (matchedPlayer && !newSelected.find(a => a.playerId === matchedPlayer.id)) {
+            const fee = calculatePotentialFee(matchedPlayer, periodId);
+            newSelected.push({
+              playerId: matchedPlayer.id,
+              fee
+            });
+            matchCount++;
+          }
+        });
+        
+        setSelectedAttendees(newSelected);
+        setSessionSearchQuery('');
+      }
+    };
+
     return (
       <div className="fixed inset-0 z-[120] flex items-center justify-center p-6 animate-fade-in bg-black/60 backdrop-blur-[10px]" onClick={() => { setActiveSessionPeriod(null); setEditingSessionId(null); }}>
         <div className="w-full max-w-sm bg-white/30 backdrop-blur-[20px] rounded-[2.5rem] border border-white/50 p-6 shadow-2xl animate-fade-in max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
@@ -463,7 +498,7 @@ const PeriodsList: React.FC<PeriodsListProps> = () => {
             <div className="grid grid-cols-2 gap-3">
                <div>
                   <label className="block text-[10px] font-black text-gray-400 mb-1">活动日期</label>
-                  <DatePicker locale="zh-CN" selected={stringToDate(sessionFormDate)} onChange={(date: any) => setSessionFormDate(dateToString(date))} dateFormat="yyyy年MM月dd日" className="w-full bg-gray-50 border border-gray-100 rounded-xl p-3 text-sm font-bold outline-none" />
+                  <DatePicker locale="zh-CN" selected={stringToDate(sessionFormDate)} onChange={(date: any) => setSessionFormDate(dateToString(date))} dateFormat="yyyy年MM月dd日" withPortal portalId="root-portal" className="w-full bg-gray-50 border border-gray-100 rounded-xl p-3 text-sm font-bold outline-none" />
                </div>
                <div>
                   <label className="block text-[10px] font-black text-gray-400 mb-1">额外费用(支)</label>
@@ -478,8 +513,9 @@ const PeriodsList: React.FC<PeriodsListProps> = () => {
                   type="text" 
                   value={sessionSearchQuery} 
                   onChange={(e) => setSessionSearchQuery(e.target.value)} 
-                  placeholder="搜索成员..." 
-                  className="w-24 text-[10px] bg-gray-50 border border-gray-200 rounded-lg px-2 py-1 outline-none focus:ring-1 focus:ring-emerald-400"
+                  onPaste={handleSessionPaste}
+                  placeholder="搜索成员... (可批量粘贴)" 
+                  className="w-32 text-[10px] bg-gray-50 border border-gray-200 rounded-lg px-2 py-1 outline-none focus:ring-1 focus:ring-emerald-400"
                 />
               </div>
               <div className="flex flex-wrap gap-1.5 p-3 bg-gray-50 rounded-2xl border border-gray-100 max-h-48 overflow-y-auto">
@@ -720,7 +756,7 @@ const PeriodsList: React.FC<PeriodsListProps> = () => {
         })}
       </div>
 
-      <button onClick={() => { setIsAddingPeriod(true); setEditingPeriodId(null); setPeriodFormData(initialPeriodData); }} className="fixed bottom-24 right-6 w-14 h-14 bg-emerald-500 text-white rounded-full flex items-center justify-center shadow-[0_0_20px_rgba(16,185,129,0.6)] ring-2 ring-emerald-300 z-50 active:scale-90 transition-transform">
+      <button onClick={() => { setIsAddingPeriod(true); setEditingPeriodId(null); setPeriodFormData(initialPeriodData); }} className="fixed bottom-[110px] right-6 w-14 h-14 bg-emerald-500 text-white rounded-full flex items-center justify-center shadow-[0_0_20px_rgba(16,185,129,0.6)] ring-2 ring-emerald-300 z-50 active:scale-90 transition-transform">
         <Icons.Plus />
       </button>
 
