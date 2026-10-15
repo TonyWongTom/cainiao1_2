@@ -575,6 +575,20 @@ const PeriodsList: React.FC<PeriodsListProps> = () => {
 
   const renderSessionForm = (periodId: string) => {
     const currentSubtotal = (selectedAttendees || []).reduce((sum, a) => sum + (a.fee || 0), 0);
+    const currentPeriod = periods.find(p => p.id === periodId);
+
+    let formMonthlyCount = 0;
+    let formHalfMonthlyCount = 0;
+    let formPerSessionCount = 0;
+
+    (selectedAttendees || []).forEach(a => {
+      const cfg = currentPeriod?.playerConfigs?.find(c => c.playerId === a.playerId);
+      const player = players.find(p => p.id === a.playerId);
+      const type = cfg?.type || player?.type || PlayerType.PER_SESSION;
+      if (type === PlayerType.MONTHLY) formMonthlyCount++;
+      else if (type === PlayerType.HALF_MONTHLY) formHalfMonthlyCount++;
+      else formPerSessionCount++;
+    });
 
     const handleSessionPaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
       const pasteText = e.clipboardData.getData('text');
@@ -690,6 +704,26 @@ const PeriodsList: React.FC<PeriodsListProps> = () => {
                     </button>
                   );
                 })}
+              </div>
+              {/* 出席人员分类统计与总数 */}
+              <div className="mt-2.5 p-3 bg-white/80 rounded-2xl border border-gray-100 flex flex-wrap items-center justify-between gap-2 text-[10px]">
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <span className="text-[9px] text-gray-400 font-black uppercase">出席小计:</span>
+                  <span className="px-2 py-0.5 rounded-lg bg-purple-500/15 text-purple-900 font-black border border-purple-200">
+                    包月: {formMonthlyCount}人
+                  </span>
+                  {formHalfMonthlyCount > 0 && (
+                    <span className="px-2 py-0.5 rounded-lg bg-blue-500/15 text-blue-900 font-black border border-blue-200">
+                      包半月: {formHalfMonthlyCount}人
+                    </span>
+                  )}
+                  <span className="px-2 py-0.5 rounded-lg bg-emerald-500/15 text-emerald-900 font-black border border-emerald-200">
+                    按次: {formPerSessionCount}人
+                  </span>
+                </div>
+                <div className="text-[10px] font-black text-emerald-950">
+                  当前出席人数: <span className="font-mono text-xs text-emerald-700 font-black">{selectedAttendees.length}</span>人
+                </div>
               </div>
             </div>
 
@@ -874,9 +908,47 @@ const PeriodsList: React.FC<PeriodsListProps> = () => {
                               </span>
                             ))}
                           </div>
-                          <div className="mt-2 text-right">
-                             <span className="text-[9px] font-black text-emerald-800/60">当前出席人数: {session.attendees?.length || 0}</span>
-                          </div>
+                          {(() => {
+                            let monthlyCount = 0;
+                            let halfMonthlyCount = 0;
+                            let perSessionCount = 0;
+
+                            (session.attendees || []).forEach(a => {
+                              const config = period.playerConfigs?.find(c => c.playerId === a.playerId);
+                              const player = players.find(p => p.id === a.playerId);
+                              const type = config?.type || player?.type || PlayerType.PER_SESSION;
+
+                              if (type === PlayerType.MONTHLY) {
+                                monthlyCount++;
+                              } else if (type === PlayerType.HALF_MONTHLY) {
+                                halfMonthlyCount++;
+                              } else {
+                                perSessionCount++;
+                              }
+                            });
+
+                            return (
+                              <div className="mt-2.5 pt-2 border-t border-white/20 flex flex-wrap items-center justify-between gap-2">
+                                <div className="flex flex-wrap items-center gap-1.5 text-[9px] font-bold">
+                                  <span className="text-gray-500 font-black">出席统计:</span>
+                                  <span className="px-2 py-0.5 rounded-md bg-purple-500/15 text-purple-900 font-black border border-purple-300/40">
+                                    包月: {monthlyCount}人
+                                  </span>
+                                  {halfMonthlyCount > 0 && (
+                                    <span className="px-2 py-0.5 rounded-md bg-blue-500/15 text-blue-900 font-black border border-blue-300/40">
+                                      包半月: {halfMonthlyCount}人
+                                    </span>
+                                  )}
+                                  <span className="px-2 py-0.5 rounded-md bg-emerald-500/15 text-emerald-900 font-black border border-emerald-300/40">
+                                    按次: {perSessionCount}人
+                                  </span>
+                                </div>
+                                <div className="text-[10px] font-black text-emerald-900">
+                                  当前出席人数: <span className="font-mono text-xs text-emerald-800 font-black">{session.attendees?.length || 0}</span>人
+                                </div>
+                              </div>
+                            );
+                          })()}
                         </div>
                       ))}
                     </div>

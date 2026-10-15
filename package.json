@@ -17,9 +17,11 @@
     "date-fns": "^4.1.0",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
+    "lucide-react": "^1.57.0",
     "react": "^19.2.4",
     "react-datepicker": "7.5.0",
     "react-dom": "^19.2.4",
+    "recharts": "^3.10.1",
     "tailwindcss": "^4.2.4",
     "tsx": "^4.21.0"
   },

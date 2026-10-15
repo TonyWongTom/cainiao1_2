@@ -3,6 +3,7 @@ import React, { useMemo } from 'react';
 import { Period, Player, PlayerType } from '../types';
 import { formatMonthDay } from '../utils/dateUtils';
 import { useAppContext } from '../context/AppContext';
+import { FinanceTrendChart } from './FinanceTrendChart';
 
 const getTypeOrder = (type?: PlayerType) => {
   if (type === PlayerType.MONTHLY) return 1;
@@ -172,6 +173,11 @@ const FinanceReport: React.FC<FinanceReportProps> = ({ initialPeriodId, onPeriod
                       <span className="text-[10px] font-bold text-emerald-900 uppercase tracking-tighter">最终实际打球成本：</span>
                       <span className="text-sm font-black text-red-900">¥{(stats.investmentPerFunder - stats.refundPerFunder).toFixed(2)}</span>
                     </div>
+                  </div>
+
+                  {/* 参与人数与费用支出趋势对比折线图及健康度分析 */}
+                  <div className="mb-6">
+                    <FinanceTrendChart period={selectedPeriod} players={players} />
                   </div>
 
                   {/* Participant Detailed Breakdown */}
