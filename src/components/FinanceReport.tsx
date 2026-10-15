@@ -4,6 +4,7 @@ import { Period, Player, PlayerType } from '../types';
 import { formatMonthDay } from '../utils/dateUtils';
 import { useAppContext } from '../context/AppContext';
 import { FinanceTrendChart } from './FinanceTrendChart';
+import { AttendanceDropOffAlert } from './AttendanceDropOffAlert';
 
 const getTypeOrder = (type?: PlayerType) => {
   if (type === PlayerType.MONTHLY) return 1;
@@ -34,6 +35,15 @@ const FinanceReport: React.FC<FinanceReportProps> = ({ initialPeriodId, onPeriod
   const selectedPeriod = initialPeriodId && Array.isArray(periods)
     ? periods.find(p => p.id === initialPeriodId) 
     : (sortedPeriods.length > 0 ? sortedPeriods[0] : null);
+
+  const previousPeriod = useMemo(() => {
+    if (!selectedPeriod || sortedPeriods.length <= 1) return null;
+    const currentIndex = sortedPeriods.findIndex(p => p.id === selectedPeriod.id);
+    if (currentIndex >= 0 && currentIndex + 1 < sortedPeriods.length) {
+      return sortedPeriods[currentIndex + 1];
+    }
+    return null;
+  }, [selectedPeriod, sortedPeriods]);
 
   const calculatePeriodStats = (period: Period) => {
     const grossIncome = Array.isArray(period.sessions) ? period.sessions.reduce((acc, s) => acc + (Array.isArray(s.attendees) ? s.attendees.reduce((sum, a) => sum + (a.fee || 0), 0) : 0), 0) : 0;
@@ -178,6 +188,15 @@ const FinanceReport: React.FC<FinanceReportProps> = ({ initialPeriodId, onPeriod
                   {/* 参与人数与费用支出趋势对比折线图及健康度分析 */}
                   <div className="mb-6">
                     <FinanceTrendChart period={selectedPeriod} players={players} />
+                  </div>
+
+                  {/* 缺勤与常客流失关怀预警（放置在健康度诊断与参与成员明细之间） */}
+                  <div className="mb-6">
+                    <AttendanceDropOffAlert
+                      currentPeriod={selectedPeriod}
+                      previousPeriod={previousPeriod}
+                      players={players}
+                    />
                   </div>
 
                   {/* Participant Detailed Breakdown */}
