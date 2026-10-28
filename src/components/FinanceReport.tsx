@@ -196,6 +196,7 @@ const FinanceReport: React.FC<FinanceReportProps> = ({ initialPeriodId, onPeriod
                       currentPeriod={selectedPeriod}
                       previousPeriod={previousPeriod}
                       players={players}
+                      allPeriods={periods}
                     />
                   </div>
 

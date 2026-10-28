@@ -1,39 +1,57 @@
 import React, { useState, useMemo } from 'react';
 import { Period, Player, PlayerType } from '../types';
-import { AlertTriangle, Copy, Check, Users, UserX, ArrowRight, TrendingDown, Info, HeartHandshake, ChevronDown, ChevronUp } from 'lucide-react';
+import { 
+  AlertTriangle, 
+  Copy, 
+  Check, 
+  Users, 
+  UserX, 
+  ArrowRight, 
+  TrendingDown, 
+  Info, 
+  HeartHandshake, 
+  ChevronDown, 
+  ChevronUp, 
+  Clock 
+} from 'lucide-react';
 
 interface AttendanceDropOffAlertProps {
   currentPeriod: Period;
   previousPeriod: Period | null;
   players: Player[];
+  allPeriods?: Period[];
 }
 
-interface DropOffPlayerInfo {
+export interface DropOffPlayerInfo {
   id: string;
   name: string;
+  type: PlayerType;
+  isFunder: boolean;
+  
+  // Rule 1: Period drop-off (上期>=3次, 本期<2次)
+  isPeriodDrop: boolean;
   prevCount: number;
   currCount: number;
   dropCount: number;
-  type: PlayerType;
-  isFunder: boolean;
+  
+  // Rule 2: Consecutive missed sessions (连续4~12次未打球)
+  isConsecutiveAbsence: boolean;
+  consecutiveMissedCount: number;
 }
 
 export const AttendanceDropOffAlert: React.FC<AttendanceDropOffAlertProps> = ({
   currentPeriod,
   previousPeriod,
-  players
+  players,
+  allPeriods
 }) => {
   const [copied, setCopied] = useState(false);
-  const [filterType, setFilterType] = useState<'all' | 'zero' | 'one'>('all');
+  const [filterType, setFilterType] = useState<'all' | 'consecutive' | 'zero' | 'one'>('all');
   const [userExpandedState, setUserExpandedState] = useState<Record<string, boolean>>({});
 
-  // Compute attendance drop-off list
-  const { alertList, zeroCount, oneCount, prevTotalSessions, currTotalSessions } = useMemo(() => {
-    if (!previousPeriod) {
-      return { alertList: [], zeroCount: 0, oneCount: 0, prevTotalSessions: 0, currTotalSessions: 0 };
-    }
-
-    const prevSessions = Array.isArray(previousPeriod.sessions) ? previousPeriod.sessions : [];
+  // Compute attendance drop-off and consecutive absences
+  const { alertList, consecutiveCount, zeroCount, oneCount, totalTimelineSessions } = useMemo(() => {
+    const prevSessions = Array.isArray(previousPeriod?.sessions) ? previousPeriod!.sessions : [];
     const currSessions = Array.isArray(currentPeriod.sessions) ? currentPeriod.sessions : [];
 
     // Count previous attendances per player
@@ -56,67 +74,156 @@ export const AttendanceDropOffAlert: React.FC<AttendanceDropOffAlertProps> = ({
       }
     });
 
-    // Gather all candidate player IDs (from previous period attendances or player list)
-    const candidateIds = new Set<string>();
-    prevMap.forEach((_, pid) => candidateIds.add(pid));
+    // Extract all sessions across club history to build chronological timeline
+    const sourcePeriods = Array.isArray(allPeriods) && allPeriods.length > 0
+      ? allPeriods
+      : [previousPeriod, currentPeriod].filter((p): p is Period => Boolean(p));
 
-    const list: DropOffPlayerInfo[] = [];
+    interface FlattenedSession {
+      id: string;
+      date: string;
+      attendeeIds: Set<string>;
+    }
 
-    candidateIds.forEach(pid => {
-      const prevCount = prevMap.get(pid) || 0;
-      const currCount = currMap.get(pid) || 0;
-
-      // Condition confirmed by user: 上周期出勤3次以上 (prevCount >= 3) 且本周期出勤不足2次 (currCount < 2)
-      if (prevCount >= 3 && currCount < 2) {
-        const playerObj = players.find(p => p.id === pid);
-        const name = playerObj?.name || '未知球友';
-
-        // Check player type: period-specific config or default player type
-        const typeConfig = currentPeriod.playerConfigs?.find(c => c.playerId === pid)?.type 
-          || previousPeriod.playerConfigs?.find(c => c.playerId === pid)?.type 
-          || playerObj?.type 
-          || PlayerType.PER_SESSION;
-
-        const isFunder = Boolean(
-          (Array.isArray(currentPeriod.funderIds) && currentPeriod.funderIds.includes(pid)) ||
-          (Array.isArray(previousPeriod.funderIds) && previousPeriod.funderIds.includes(pid)) ||
-          playerObj?.isFunder
-        );
-
-        list.push({
-          id: pid,
-          name,
-          prevCount,
-          currCount,
-          dropCount: prevCount - currCount,
-          type: typeConfig,
-          isFunder
+    const allSessionsList: FlattenedSession[] = [];
+    sourcePeriods.forEach(p => {
+      if (Array.isArray(p.sessions)) {
+        p.sessions.forEach(s => {
+          const attendeeIds = new Set<string>();
+          if (Array.isArray(s.attendees)) {
+            s.attendees.forEach(a => attendeeIds.add(a.playerId));
+          }
+          allSessionsList.push({
+            id: s.id,
+            date: s.date || '',
+            attendeeIds
+          });
         });
       }
     });
 
-    // Sort: completely absent (currCount === 0) first, then by prevCount descending
-    list.sort((a, b) => {
-      if (a.currCount !== b.currCount) {
-        return a.currCount - b.currCount; // 0 comes before 1
+    // Sort chronologically ascending
+    allSessionsList.sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+
+    // Timeline up to current period's latest session date
+    let cutoffDate = '';
+    if (currSessions.length > 0) {
+      cutoffDate = currSessions.reduce((max, s) => (s.date > max ? s.date : max), '');
+    } else if (currentPeriod.endDate) {
+      cutoffDate = currentPeriod.endDate;
+    }
+
+    const timelineSessions = cutoffDate
+      ? allSessionsList.filter(s => s.date <= cutoffDate)
+      : allSessionsList;
+
+    const K = timelineSessions.length;
+
+    // Check both rules for candidate players
+    const list: DropOffPlayerInfo[] = [];
+
+    players.forEach(playerObj => {
+      const pid = playerObj.id;
+      const prevCount = prevMap.get(pid) || 0;
+      const currCount = currMap.get(pid) || 0;
+
+      // Rule 1: 上周期出勤3次以上且本周期出勤不足2次
+      const isPeriodDrop = Boolean(previousPeriod && prevCount >= 3 && currCount < 2);
+
+      // Rule 2: 连续四次没有打球的也需要预警，超过12次的不再预警 (4 <= consecutiveMissed <= 12)
+      let consecutiveMissed = 0;
+      let hasAttendedInTimeline = false;
+      if (K > 0) {
+        for (let i = K - 1; i >= 0; i--) {
+          if (timelineSessions[i].attendeeIds.has(pid)) {
+            hasAttendedInTimeline = true;
+            break;
+          } else {
+            consecutiveMissed++;
+          }
+        }
       }
-      return b.prevCount - a.prevCount; // higher previous attendance first
+
+      // Check if player is an active member or has past attendance record
+      const isConfiguredMember = Boolean(
+        currentPeriod.playerConfigs?.some(c => c.playerId === pid) ||
+        previousPeriod?.playerConfigs?.some(c => c.playerId === pid) ||
+        playerObj.isFunder ||
+        playerObj.type !== PlayerType.PER_SESSION
+      );
+
+      // Rule 2 triggers when 4 <= consecutiveMissed <= 12 (exceeding 12 is ignored per user rule)
+      const isConsecutiveAbsence = Boolean(
+        consecutiveMissed >= 4 &&
+        consecutiveMissed <= 12 &&
+        (hasAttendedInTimeline || isConfiguredMember)
+      );
+
+      // If either Rule 1 or Rule 2 is met, add to alert list
+      if (isPeriodDrop || isConsecutiveAbsence) {
+        const typeConfig = currentPeriod.playerConfigs?.find(c => c.playerId === pid)?.type 
+          || previousPeriod?.playerConfigs?.find(c => c.playerId === pid)?.type 
+          || playerObj.type 
+          || PlayerType.PER_SESSION;
+
+        const isFunder = Boolean(
+          (Array.isArray(currentPeriod.funderIds) && currentPeriod.funderIds.includes(pid)) ||
+          (Array.isArray(previousPeriod?.funderIds) && previousPeriod!.funderIds.includes(pid)) ||
+          playerObj.isFunder
+        );
+
+        list.push({
+          id: pid,
+          name: playerObj.name || '未知球友',
+          type: typeConfig,
+          isFunder,
+          isPeriodDrop,
+          prevCount,
+          currCount,
+          dropCount: prevCount > currCount ? prevCount - currCount : 0,
+          isConsecutiveAbsence,
+          consecutiveMissedCount: consecutiveMissed
+        });
+      }
     });
 
+    // Priority Sort:
+    // 1. Players meeting both rules first
+    // 2. Completely absent this period (currCount === 0)
+    // 3. Higher consecutive absences descending
+    // 4. Higher previous attendance descending
+    list.sort((a, b) => {
+      const aBoth = a.isPeriodDrop && a.isConsecutiveAbsence ? 1 : 0;
+      const bBoth = b.isPeriodDrop && b.isConsecutiveAbsence ? 1 : 0;
+      if (aBoth !== bBoth) return bBoth - aBoth;
+
+      if (a.currCount === 0 && b.currCount !== 0) return -1;
+      if (b.currCount === 0 && a.currCount !== 0) return 1;
+
+      if (b.consecutiveMissedCount !== a.consecutiveMissedCount) {
+        return b.consecutiveMissedCount - a.consecutiveMissedCount;
+      }
+      return b.prevCount - a.prevCount;
+    });
+
+    const consecutives = list.filter(p => p.isConsecutiveAbsence).length;
     const zeros = list.filter(p => p.currCount === 0).length;
     const ones = list.filter(p => p.currCount === 1).length;
 
     return {
       alertList: list,
+      consecutiveCount: consecutives,
       zeroCount: zeros,
       oneCount: ones,
-      prevTotalSessions: prevSessions.length,
-      currTotalSessions: currSessions.length
+      totalTimelineSessions: K
     };
-  }, [currentPeriod, previousPeriod, players]);
+  }, [currentPeriod, previousPeriod, players, allPeriods]);
 
-  // Filtered list based on tab
+  // Filtered list based on active tab
   const displayedList = useMemo(() => {
+    if (filterType === 'consecutive') {
+      return alertList.filter(p => p.isConsecutiveAbsence);
+    }
     if (filterType === 'zero') {
       return alertList.filter(p => p.currCount === 0);
     }
@@ -128,17 +235,29 @@ export const AttendanceDropOffAlert: React.FC<AttendanceDropOffAlertProps> = ({
 
   // Copy care list to clipboard
   const handleCopyCareList = () => {
-    if (!previousPeriod || alertList.length === 0) return;
+    if (alertList.length === 0) return;
 
     const lines = [
       `🏸【羽毛球俱乐部 · 常客出勤关怀提醒】`,
-      `📅 对比周期：${previousPeriod.name} ➔ ${currentPeriod.name}`,
-      `📌 预警标准：上周期出勤≥3次，本周期出勤不足2次`,
+      `📅 统计周期：${currentPeriod.name}${previousPeriod ? ` (对比上期: ${previousPeriod.name})` : ''}`,
+      `📌 预警触发规则：`,
+      `  1. 周期锐减：上期出勤≥3次 ➔ 本期不足2次`,
+      `  2. 连续缺勤：已连续4~12次未打球 (超过12次已自动过滤)`,
       `👥 缺勤关怀名单（共 ${alertList.length} 人）：`,
       ...alertList.map((p, idx) => {
         const typeStr = `[${p.type}${p.isFunder ? '·👑集资人' : ''}]`;
-        const currDesc = p.currCount === 0 ? '本期未到场' : '仅到场1次';
-        return `${idx + 1}. ${p.name} ${typeStr}：上期 ${p.prevCount}次 ➔ 本期 ${p.currCount}次 (${currDesc}，出勤减少 ${p.dropCount} 次)`;
+        const reasons: string[] = [];
+        if (p.isConsecutiveAbsence) {
+          reasons.push(`连续缺席 ${p.consecutiveMissedCount} 次未打球`);
+        }
+        if (p.isPeriodDrop) {
+          reasons.push(`上期 ${p.prevCount}次 ➔ 本期 ${p.currCount}次 (出勤减少 ${p.dropCount} 次)`);
+        } else if (p.currCount === 0) {
+          reasons.push(`本期未到场`);
+        } else {
+          reasons.push(`本期仅到场 ${p.currCount} 次`);
+        }
+        return `${idx + 1}. ${p.name} ${typeStr}：${reasons.join('；')}`;
       }),
       '',
       `💡 建议组织者抽空微信私聊关怀，询问是否出差/受伤/时间冲突，促进常客球友回归！`
@@ -150,7 +269,6 @@ export const AttendanceDropOffAlert: React.FC<AttendanceDropOffAlertProps> = ({
           await navigator.clipboard.writeText(lines);
           setCopied(true);
         } else {
-          // Fallback for iframe environments
           const textArea = document.createElement('textarea');
           textArea.value = lines;
           textArea.style.position = 'fixed';
@@ -171,22 +289,22 @@ export const AttendanceDropOffAlert: React.FC<AttendanceDropOffAlertProps> = ({
     copyToClipboard();
   };
 
-  // If there's no previous period available
-  if (!previousPeriod) {
+  // If there's no data to compare and no sessions recorded
+  if (!previousPeriod && totalTimelineSessions < 4) {
     return (
       <div className="bg-amber-50/70 border border-amber-200/80 rounded-2xl p-4 backdrop-blur-md">
         <div className="flex items-start gap-2.5">
           <Info className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
           <div className="text-xs text-amber-900 leading-relaxed">
             <span className="font-bold">常客缺勤预警提示：</span>
-            <span>当前为最早或唯一的结算周期，暂无上一周期出勤数据作为对比基准。当俱乐部存在2个及以上周期记录时，系统将自动比对“上周期常来（≥3次）但本周期未怎么来（&lt;2次）”的球友并在此提醒。</span>
+            <span>当前为首个周期且活动记录不足4场，暂无对比基准。当存在前一周期出勤数据或球友累计连续缺勤4场以上时，系统将自动汇总预警。</span>
           </div>
         </div>
       </div>
     );
   }
 
-  // If there are no drop-off members detected
+  // If there are no drop-off or consecutive absent members detected
   if (alertList.length === 0) {
     return (
       <div className="bg-emerald-50/70 border border-emerald-200/80 rounded-2xl p-4 backdrop-blur-md shadow-sm">
@@ -198,12 +316,14 @@ export const AttendanceDropOffAlert: React.FC<AttendanceDropOffAlertProps> = ({
             <div>
               <h4 className="text-xs font-black text-emerald-950 flex items-center gap-1.5">
                 <span>球友粘性良好 · 无常客缺勤预警</span>
-                <span className="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-2 py-0.5 rounded-full">
-                  对比上期: {previousPeriod.name}
-                </span>
+                {previousPeriod && (
+                  <span className="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-2 py-0.5 rounded-full">
+                    对比上期: {previousPeriod.name}
+                  </span>
+                )}
               </h4>
               <p className="text-[11px] text-emerald-800/80 mt-0.5 font-medium">
-                上一周期出勤 ≥3 次的球友在当前周期均正常打球（出勤均达到 2 次及以上）。
+                俱乐部常客均正常出勤，且无连续缺勤4~12场的球友。
               </p>
             </div>
           </div>
@@ -213,7 +333,7 @@ export const AttendanceDropOffAlert: React.FC<AttendanceDropOffAlertProps> = ({
     );
   }
 
-  // Member type styling helper
+  // Member type badge styling
   const getTypeBadgeClass = (type: PlayerType) => {
     switch (type) {
       case PlayerType.MONTHLY:
@@ -226,7 +346,7 @@ export const AttendanceDropOffAlert: React.FC<AttendanceDropOffAlertProps> = ({
     }
   };
 
-  // User toggleable expansion state (defaults to collapsed if list > 3 to keep page neat)
+  // Collapse / expand toggle state
   const isExpanded = userExpandedState[currentPeriod.id] !== undefined
     ? userExpandedState[currentPeriod.id]
     : alertList.length <= 3;
@@ -252,11 +372,16 @@ export const AttendanceDropOffAlert: React.FC<AttendanceDropOffAlertProps> = ({
                 常客出勤异动预警
               </h3>
               <span className="text-[10px] bg-amber-500/20 text-amber-900 border border-amber-500/30 px-2 py-0.5 rounded-full font-black">
-                {alertList.length} 人出勤显著骤降
+                {alertList.length} 人需关怀
               </span>
+              {consecutiveCount > 0 && (
+                <span className="text-[10px] bg-red-500/20 text-red-900 border border-red-400/40 px-2 py-0.5 rounded-full font-black">
+                  {consecutiveCount} 人连续缺席≥4次
+                </span>
+              )}
             </div>
             <p className="text-[11px] text-amber-900/80 mt-0.5">
-              对比上周期 <span className="font-bold text-amber-950">{previousPeriod.name}</span> (出勤≥3次) ➔ 本周期 <span className="font-bold text-amber-950">{currentPeriod.name}</span> (出勤不足2次)
+              包含：<b>周期出勤骤降</b> (上期≥3次➔本期不足2次) 与 <b>连续4~12次未打球</b> (超12次不提醒)
             </p>
           </div>
         </div>
@@ -317,7 +442,7 @@ export const AttendanceDropOffAlert: React.FC<AttendanceDropOffAlertProps> = ({
               名单已折叠
             </span>
             <span className="text-[11px] text-amber-900/80 font-medium">
-              (共 {alertList.length} 人：{zeroCount} 人本期未到场，{oneCount} 人仅出勤1次)
+              (共 {alertList.length} 人：{consecutiveCount} 人连续缺席≥4次，{zeroCount} 人本期未到场)
             </span>
             <div className="flex items-center gap-1 flex-wrap">
               {alertList.slice(0, 5).map(p => (
@@ -325,7 +450,7 @@ export const AttendanceDropOffAlert: React.FC<AttendanceDropOffAlertProps> = ({
                   key={p.id}
                   className="text-[10px] bg-white/70 border border-amber-200/80 text-amber-900 px-1.5 py-0.5 rounded-md font-semibold"
                 >
-                  {p.name}
+                  {p.name} {p.isConsecutiveAbsence ? `(缺席${p.consecutiveMissedCount}次)` : ''}
                 </span>
               ))}
               {alertList.length > 5 && (
@@ -346,7 +471,7 @@ export const AttendanceDropOffAlert: React.FC<AttendanceDropOffAlertProps> = ({
       {isExpanded && (
         <>
           {/* Metrics Row & Tabs */}
-          <div className="grid grid-cols-3 gap-2.5 pt-1">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 pt-1">
             <button
               onClick={() => setFilterType('all')}
               className={`p-2.5 rounded-2xl border text-left transition-all cursor-pointer ${
@@ -356,25 +481,40 @@ export const AttendanceDropOffAlert: React.FC<AttendanceDropOffAlertProps> = ({
               }`}
             >
               <div className="flex items-center justify-between text-[10px] font-bold text-amber-900">
-                <span>预警总数</span>
+                <span>全部预警</span>
                 <Users className="w-3.5 h-3.5 opacity-60" />
               </div>
               <p className="text-lg font-black text-amber-950 mt-0.5">{alertList.length} <span className="text-[10px] font-bold">人</span></p>
             </button>
 
             <button
-              onClick={() => setFilterType('zero')}
+              onClick={() => setFilterType('consecutive')}
               className={`p-2.5 rounded-2xl border text-left transition-all cursor-pointer ${
-                filterType === 'zero'
-                  ? 'bg-red-500/25 border-red-500/40 shadow-sm'
+                filterType === 'consecutive'
+                  ? 'bg-red-500/25 border-red-500/40 shadow-sm ring-1 ring-red-400/50'
                   : 'bg-white/30 border-white/40 hover:bg-white/40'
               }`}
             >
               <div className="flex items-center justify-between text-[10px] font-bold text-red-900">
-                <span>本期未到场 (0次)</span>
-                <UserX className="w-3.5 h-3.5 opacity-60 text-red-600" />
+                <span>连续缺席 (4~12次)</span>
+                <Clock className="w-3.5 h-3.5 text-red-600" />
               </div>
-              <p className="text-lg font-black text-red-700 mt-0.5">{zeroCount} <span className="text-[10px] font-bold text-red-900">人</span></p>
+              <p className="text-lg font-black text-red-700 mt-0.5">{consecutiveCount} <span className="text-[10px] font-bold text-red-900">人</span></p>
+            </button>
+
+            <button
+              onClick={() => setFilterType('zero')}
+              className={`p-2.5 rounded-2xl border text-left transition-all cursor-pointer ${
+                filterType === 'zero'
+                  ? 'bg-rose-500/25 border-rose-500/40 shadow-sm'
+                  : 'bg-white/30 border-white/40 hover:bg-white/40'
+              }`}
+            >
+              <div className="flex items-center justify-between text-[10px] font-bold text-rose-900">
+                <span>本期完全缺勤 (0次)</span>
+                <UserX className="w-3.5 h-3.5 opacity-60 text-rose-600" />
+              </div>
+              <p className="text-lg font-black text-rose-700 mt-0.5">{zeroCount} <span className="text-[10px] font-bold text-rose-900">人</span></p>
             </button>
 
             <button
@@ -397,15 +537,15 @@ export const AttendanceDropOffAlert: React.FC<AttendanceDropOffAlertProps> = ({
           <div className="bg-white/40 border border-white/60 rounded-2xl overflow-hidden backdrop-blur-md">
             <div className="px-3.5 py-2 bg-amber-500/10 border-b border-amber-500/20 flex items-center justify-between text-[10px] font-black text-amber-950">
               <span className="flex items-center gap-1">
-                <HeartHandshake className="w-3 h-3 text-amber-700" />
+                <HeartHandshake className="w-3.5 h-3.5 text-amber-700" />
                 需关注球友 ({displayedList.length} 人)
               </span>
               <span className="text-amber-800/80 font-medium">
-                点击上方分类卡片可快速筛选
+                点击上方分类卡片可快速筛选 · 超过12次未打球已自动过滤
               </span>
             </div>
 
-            <div className="divide-y divide-amber-500/15 max-h-72 overflow-y-auto">
+            <div className="divide-y divide-amber-500/15 max-h-80 overflow-y-auto">
               {displayedList.map(player => (
                 <div
                   key={player.id}
@@ -427,8 +567,17 @@ export const AttendanceDropOffAlert: React.FC<AttendanceDropOffAlertProps> = ({
                       </span>
                     )}
 
+                    {/* Consecutive absences badge */}
+                    {player.isConsecutiveAbsence && (
+                      <span className="text-[9px] font-black bg-red-100 text-red-800 border border-red-300 px-2 py-0.5 rounded-full flex items-center gap-1 shadow-xs">
+                        <Clock className="w-3 h-3 text-red-600 shrink-0" />
+                        <span>已连续缺席 {player.consecutiveMissedCount} 次</span>
+                      </span>
+                    )}
+
+                    {/* Period comparison status */}
                     {player.currCount === 0 ? (
-                      <span className="text-[9px] font-black bg-red-500/15 text-red-700 border border-red-500/20 px-2 py-0.5 rounded-full">
+                      <span className="text-[9px] font-black bg-rose-500/15 text-rose-700 border border-rose-500/20 px-2 py-0.5 rounded-full">
                         本期完全缺勤
                       </span>
                     ) : (
@@ -439,35 +588,44 @@ export const AttendanceDropOffAlert: React.FC<AttendanceDropOffAlertProps> = ({
                   </div>
 
                   {/* Right: Attendance Comparison */}
-                  <div className="flex items-center gap-2.5 self-end sm:self-auto shrink-0">
-                    <div className="flex items-center gap-1.5 text-xs font-black">
-                      <span className="text-emerald-800 bg-emerald-100/80 border border-emerald-200 px-2 py-0.5 rounded-md text-[11px]" title="上一周期打球出勤">
-                        上期 {player.prevCount}次
-                      </span>
-                      <ArrowRight className="w-3.5 h-3.5 text-amber-700/60" />
-                      <span
-                        className={`px-2 py-0.5 rounded-md text-[11px] border ${
-                          player.currCount === 0
-                            ? 'bg-red-100 text-red-700 border-red-200'
-                            : 'bg-orange-100 text-orange-800 border-orange-200'
-                        }`}
-                        title="当前周期打球出勤"
-                      >
-                        本期 {player.currCount}次
-                      </span>
-                    </div>
+                  <div className="flex items-center gap-2.5 self-end sm:self-auto shrink-0 flex-wrap">
+                    {player.isPeriodDrop && previousPeriod && (
+                      <div className="flex items-center gap-1.5 text-xs font-black">
+                        <span className="text-emerald-800 bg-emerald-100/80 border border-emerald-200 px-2 py-0.5 rounded-md text-[11px]" title="上一周期打球出勤">
+                          上期 {player.prevCount}次
+                        </span>
+                        <ArrowRight className="w-3.5 h-3.5 text-amber-700/60" />
+                        <span
+                          className={`px-2 py-0.5 rounded-md text-[11px] border ${
+                            player.currCount === 0
+                              ? 'bg-rose-100 text-rose-700 border-rose-200'
+                              : 'bg-orange-100 text-orange-800 border-orange-200'
+                          }`}
+                          title="当前周期打球出勤"
+                        >
+                          本期 {player.currCount}次
+                        </span>
+                        {player.dropCount > 0 && (
+                          <div className="flex items-center gap-0.5 text-[10px] font-black text-red-600 bg-red-50 px-1.5 py-0.5 rounded border border-red-200">
+                            <TrendingDown className="w-3 h-3" />
+                            <span>-{player.dropCount}</span>
+                          </div>
+                        )}
+                      </div>
+                    )}
 
-                    <div className="flex items-center gap-0.5 text-[10px] font-black text-red-600 bg-red-50 px-1.5 py-0.5 rounded border border-red-200">
-                      <TrendingDown className="w-3 h-3" />
-                      <span>-{player.dropCount}</span>
-                    </div>
+                    {!player.isPeriodDrop && (
+                      <div className="text-[11px] font-bold text-gray-500 bg-gray-50 border border-gray-200 px-2.5 py-0.5 rounded-md">
+                        本期出勤 {player.currCount} 次
+                      </div>
+                    )}
                   </div>
                 </div>
               ))}
 
               {displayedList.length === 0 && (
                 <div className="py-6 text-center text-xs text-amber-900/60">
-                  当前分类下暂无对应球友
+                  当前筛选条件下暂无对应球友
                 </div>
               )}
             </div>
@@ -475,7 +633,7 @@ export const AttendanceDropOffAlert: React.FC<AttendanceDropOffAlertProps> = ({
 
           {/* Bottom footer with tip & collapse button */}
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-[10px] text-amber-900/75 px-1 font-medium">
-            <span>💡 建议：可使用上方「一键复制关怀名单」在微信私信球友，及时了解意向以提升俱乐部活跃度。</span>
+            <span>💡 预警规则说明：连续4~12次未打球自动累计预警，超过12次视为长期离队自动停止提醒。使用「一键复制关怀名单」可便捷微信关怀。</span>
             <button
               onClick={toggleExpand}
               className="flex items-center gap-1 text-xs font-bold text-amber-900/80 hover:text-amber-950 px-2.5 py-1 rounded-lg hover:bg-amber-500/15 transition-colors cursor-pointer shrink-0 self-end sm:self-auto"

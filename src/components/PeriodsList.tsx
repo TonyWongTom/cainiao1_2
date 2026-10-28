@@ -41,6 +41,38 @@ const getTypeOrder = (type?: PlayerType) => {
   return 4;
 };
 
+export function parseNameAndCompanions(rawText: string): { baseName: string; companions: string[]; allNames: string[] } {
+  const cleaned = rawText.replace(/^\s*\d+[\.、\s]+/, '').trim().replace(/＋/g, '+');
+  if (!cleaned) {
+    return { baseName: '', companions: [], allNames: [] };
+  }
+  
+  // Match patterns like "张三+2", "张三+1", "张三+", "张三 + 2", "张三 + 1"
+  const match = cleaned.match(/^(.+?)\s*\+\s*(\d*)$/);
+  if (match) {
+    const baseName = match[1].trim();
+    const countStr = match[2].trim();
+    const companionCount = countStr ? Math.max(1, parseInt(countStr, 10)) : 1;
+    
+    const companions: string[] = [];
+    for (let i = 1; i <= companionCount; i++) {
+      companions.push(`${baseName}+${i}`);
+    }
+    
+    return {
+      baseName,
+      companions,
+      allNames: baseName ? [baseName, ...companions] : companions
+    };
+  }
+  
+  return {
+    baseName: cleaned,
+    companions: [],
+    allNames: [cleaned]
+  };
+}
+
 interface PeriodsListProps {
 }
 
@@ -81,7 +113,7 @@ const PeriodsList: React.FC<PeriodsListProps> = () => {
 
   const [periodFormData, setPeriodFormData] = useState<Partial<Period>>(initialPeriodData);
   const [sessionFormDate, setSessionFormDate] = useState(new Date().toISOString().split('T')[0]);
-  const [sessionFormCost, setSessionFormCost] = useState<number>(0);
+  const [sessionFormCost, setSessionFormCost] = useState<number | ''>('');
   const [selectedAttendees, setSelectedAttendees] = useState<{playerId: string, fee: number}[]>([]);
 
   const sortedPeriods = useMemo(() => {
@@ -239,16 +271,17 @@ const PeriodsList: React.FC<PeriodsListProps> = () => {
       alert('请至少选择一名出席成员');
       return;
     }
+    const extraCost = sessionFormCost === '' ? 0 : (Number(sessionFormCost) || 0);
     if (editingSessionId) {
       setPeriods(prev => prev.map(p => p.id === periodId ? {
         ...p,
-        sessions: (p.sessions || []).map(s => s.id === editingSessionId ? { ...s, date: sessionFormDate, sessionCost: sessionFormCost, attendees: selectedAttendees } : s)
+        sessions: (p.sessions || []).map(s => s.id === editingSessionId ? { ...s, date: sessionFormDate, sessionCost: extraCost, attendees: selectedAttendees } : s)
       } : p));
     } else {
       const session: Session = {
         id: Date.now().toString(),
         date: sessionFormDate,
-        sessionCost: sessionFormCost,
+        sessionCost: extraCost,
         attendees: selectedAttendees
       };
       setPeriods(prev => prev.map(p => {
@@ -590,67 +623,80 @@ const PeriodsList: React.FC<PeriodsListProps> = () => {
       else formPerSessionCount++;
     });
 
+    const handleAddParsedNames = (names: string[]) => {
+      if (!names || names.length === 0) return;
+      let newSelected = [...selectedAttendees];
+      let unmatched: string[] = [];
+
+      names.forEach(nameToFind => {
+        const trimmed = nameToFind.trim();
+        if (!trimmed) return;
+
+        let bestMatch = players.find(p => p.name.trim() === trimmed);
+        if (!bestMatch) {
+          bestMatch = players.find(p => p.name.trim().toLowerCase() === trimmed.toLowerCase());
+        }
+        if (!bestMatch) {
+          const normInput = trimmed.replace(/[^\u4e00-\u9fa5a-zA-Z0-9\+]/g, '').toLowerCase();
+          bestMatch = players.find(p => {
+            const normP = p.name.replace(/[^\u4e00-\u9fa5a-zA-Z0-9\+]/g, '').toLowerCase();
+            return normP && normP === normInput;
+          });
+        }
+
+        if (bestMatch) {
+          if (!newSelected.find(a => a.playerId === bestMatch!.id)) {
+            const fee = calculatePotentialFee(bestMatch, periodId);
+            newSelected.push({
+              playerId: bestMatch.id,
+              fee
+            });
+          }
+        } else {
+          if (!unmatched.includes(trimmed)) {
+            unmatched.push(trimmed);
+          }
+        }
+      });
+
+      setSelectedAttendees(newSelected);
+      setSessionSearchQuery('');
+
+      if (unmatched.length > 0) {
+        setUnmatchedPasteNames(unmatched);
+        setPastePlayerFormData({
+          name: unmatched[0],
+          type: PlayerType.PER_SESSION,
+          defaultFee: DEFAULT_SESSION_FEE,
+          isFunder: false
+        });
+        setIsAddingPastePlayer(true);
+      }
+    };
+
     const handleSessionPaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
       const pasteText = e.clipboardData.getData('text');
       if (!pasteText) return;
       
-      if (pasteText.includes('\n') || /\d+[\.、\s]/.test(pasteText)) {
+      if (pasteText.includes('\n') || /\d+[\.、\s]/.test(pasteText) || pasteText.includes('+') || pasteText.includes('＋')) {
         e.preventDefault();
         const lines = pasteText.split(/\r?\n/);
-        let newSelected = [...selectedAttendees];
-        let matchCount = 0;
-        let unmatched: string[] = [];
+        let namesToProcess: string[] = [];
         
         lines.forEach(line => {
           if (!line.trim()) return;
-          const normalizedInput = line.replace(/^\s*\d+[\.、\s]+/, '').replace(/[^\u4e00-\u9fa5a-zA-Z0-9]/g, '').toLowerCase();
-          if (!normalizedInput) return;
-
-          const rawName = line.replace(/^\s*\d+[\.、\s]+/, '').trim();
-
-          let bestMatch = players.find(p => {
-            const normP = p.name.replace(/[^\u4e00-\u9fa5a-zA-Z0-9]/g, '').toLowerCase();
-            return normP && normP === normalizedInput;
+          const { allNames } = parseNameAndCompanions(line);
+          allNames.forEach(n => {
+            if (n.trim()) namesToProcess.push(n.trim());
           });
-
-          if (!bestMatch) {
-            bestMatch = players.find(p => {
-              const normP = p.name.replace(/[^\u4e00-\u9fa5a-zA-Z0-9]/g, '').toLowerCase();
-              return normP && normP.length > 1 && normalizedInput.length > 1 && (normalizedInput.includes(normP) || normP.includes(normalizedInput));
-            });
-          }
-
-          if (bestMatch) {
-            if (!newSelected.find(a => a.playerId === bestMatch!.id)) {
-                const fee = calculatePotentialFee(bestMatch, periodId);
-                newSelected.push({
-                playerId: bestMatch.id,
-                fee
-                });
-                matchCount++;
-            }
-          } else {
-              if (rawName && !unmatched.includes(rawName)) {
-                  unmatched.push(rawName);
-              }
-          }
         });
-        
-        setSelectedAttendees(newSelected);
-        setSessionSearchQuery('');
 
-        if (unmatched.length > 0) {
-            setUnmatchedPasteNames(unmatched);
-            setPastePlayerFormData({
-                name: unmatched[0],
-                type: PlayerType.PER_SESSION,
-                defaultFee: DEFAULT_SESSION_FEE,
-                isFunder: false
-            });
-            setIsAddingPastePlayer(true);
-        }
+        handleAddParsedNames(namesToProcess);
       }
     };
+
+    const parsedSearch = parseNameAndCompanions(sessionSearchQuery);
+    const hasPlusSuffix = parsedSearch.companions.length > 0;
 
     return (
       <div className="fixed inset-0 z-[120] flex items-center justify-center p-6 animate-fade-in bg-black/60 backdrop-blur-[10px]" onClick={() => { setActiveSessionPeriod(null); setEditingSessionId(null); }}>
@@ -664,22 +710,64 @@ const PeriodsList: React.FC<PeriodsListProps> = () => {
                </div>
                <div>
                   <label className="block text-[10px] font-black text-gray-400 mb-1">额外费用(支)</label>
-                  <input type="number" value={sessionFormCost === '' as any ? '' : sessionFormCost} onChange={e => setSessionFormCost(e.target.value === '' ? '' as any : Number(e.target.value))} className="w-full bg-gray-50 border border-gray-100 rounded-xl p-3 text-sm font-bold outline-none text-red-500" placeholder="0.00" />
+                  <input type="number" value={sessionFormCost} onChange={e => setSessionFormCost(e.target.value === '' ? '' : Number(e.target.value))} className="w-full bg-gray-50 border border-gray-100 rounded-xl p-3 text-sm font-bold outline-none text-red-500" placeholder="0.00" />
                </div>
             </div>
             
             <div>
-              <div className="flex justify-between items-center mb-2">
-                <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">第一步：选择出席成员 ({selectedAttendees.length}):</p>
-                <input 
-                  type="text" 
-                  value={sessionSearchQuery} 
-                  onChange={(e) => setSessionSearchQuery(e.target.value)} 
-                  onPaste={handleSessionPaste}
-                  placeholder="搜索成员... (可批量粘贴)" 
-                  className="w-32 text-[10px] bg-gray-50 border border-gray-200 rounded-lg px-2 py-1 outline-none focus:ring-1 focus:ring-emerald-400"
-                />
+              <div className="flex justify-between items-center mb-2 gap-2">
+                <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest shrink-0">第一步：选择出席成员 ({selectedAttendees.length}):</p>
+                <div className="relative flex-1 max-w-[200px]">
+                  <input 
+                    type="text" 
+                    value={sessionSearchQuery} 
+                    onChange={(e) => setSessionSearchQuery(e.target.value)} 
+                    onPaste={handleSessionPaste}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && sessionSearchQuery.trim()) {
+                        e.preventDefault();
+                        handleAddParsedNames(parsedSearch.allNames);
+                      }
+                    }}
+                    placeholder="搜索或输入 张三+1 (回车录入)" 
+                    className="w-full text-[10px] bg-gray-50 border border-gray-200 rounded-lg px-2.5 py-1.5 outline-none focus:ring-1 focus:ring-emerald-400"
+                  />
+                </div>
               </div>
+
+              {/* 智能识别 + / +1 / +2 加带人员 或 新成员快捷提示 */}
+              {sessionSearchQuery.trim() && (
+                <div className="mb-2 p-2 bg-emerald-500/10 border border-emerald-400/40 rounded-xl flex items-center justify-between gap-2 animate-in fade-in">
+                  <div className="text-[11px] text-emerald-950 font-bold leading-tight">
+                    {hasPlusSuffix ? (
+                      <>
+                        <span>识别为：</span>
+                        <span className="font-black text-emerald-800 underline">{parsedSearch.baseName}</span>
+                        <span className="text-gray-500 mx-1">+ 加带人员:</span>
+                        <span className="font-mono text-emerald-700 bg-white px-1.5 py-0.5 rounded border border-emerald-200 font-black">
+                          {parsedSearch.companions.join('、')}
+                        </span>
+                      </>
+                    ) : (
+                      <>
+                        <span>输入成员：</span>
+                        <span className="font-black text-emerald-800 underline">{sessionSearchQuery.trim()}</span>
+                        {!players.some(p => p.name.trim().toLowerCase() === sessionSearchQuery.trim().toLowerCase()) && (
+                          <span className="text-amber-700 ml-1 text-[10px] font-normal">(非现有人员，确认后可快捷添加)</span>
+                        )}
+                      </>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleAddParsedNames(parsedSearch.allNames)}
+                    className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white rounded-lg text-xs font-black shadow-sm shrink-0 cursor-pointer"
+                  >
+                    录入/添加 (Enter)
+                  </button>
+                </div>
+              )}
+
               <div className="flex flex-wrap gap-1.5 p-3 bg-gray-50 rounded-2xl border border-gray-100 max-h-48 overflow-y-auto">
                 {Array.isArray(players) && [...players]
                   .sort((a, b) => {
@@ -693,7 +781,12 @@ const PeriodsList: React.FC<PeriodsListProps> = () => {
                     const bType = currentPeriod?.playerConfigs?.find(c => c.playerId === b.id)?.type || b.type || PlayerType.PER_SESSION;
                     return getTypeOrder(aType) - getTypeOrder(bType);
                   })
-                  .filter(p => !sessionSearchQuery || p.name.toLowerCase().includes(sessionSearchQuery.toLowerCase()))
+                  .filter(p => {
+                    if (!sessionSearchQuery) return true;
+                    const q = sessionSearchQuery.toLowerCase().trim();
+                    const base = parsedSearch.baseName ? parsedSearch.baseName.toLowerCase().trim() : '';
+                    return p.name.toLowerCase().includes(q) || (base && p.name.toLowerCase().includes(base));
+                  })
                   .map(p => {
                   const isSelected = selectedAttendees.find(a => a.playerId === p.id);
                   const displayFee = calculatePotentialFee(p, periodId);
@@ -862,7 +955,7 @@ const PeriodsList: React.FC<PeriodsListProps> = () => {
                           setActiveSessionPeriod(period.id); 
                           setEditingSessionId(null); 
                           setSessionFormDate(new Date().toISOString().split('T')[0]); 
-                          setSessionFormCost(0); 
+                          setSessionFormCost(''); 
                           setSelectedAttendees([]); 
                         }} 
                         className="text-[10px] bg-emerald-500 ring-1 ring-white/40 text-white px-4 py-2 rounded-xl font-black active:scale-95 shadow-[0_0_15px_rgba(16,185,129,0.5)]"
@@ -883,7 +976,7 @@ const PeriodsList: React.FC<PeriodsListProps> = () => {
                                 </div>
                              </div>
                              <div className="flex gap-1 items-center">
-                                <button onClick={(e) => { e.stopPropagation(); setActiveSessionPeriod(period.id); setEditingSessionId(session.id); setSessionFormDate(session.date); setSessionFormCost(session.sessionCost || 0); setSelectedAttendees(session.attendees || []); }} className="text-emerald-800/80 p-1.5 active:text-emerald-900 transition-colors"><Icons.Pencil /></button>
+                                <button onClick={(e) => { e.stopPropagation(); setActiveSessionPeriod(period.id); setEditingSessionId(session.id); setSessionFormDate(session.date); setSessionFormCost(session.sessionCost !== undefined && session.sessionCost !== null && session.sessionCost !== 0 ? session.sessionCost : ''); setSelectedAttendees(session.attendees || []); }} className="text-emerald-800/80 p-1.5 active:text-emerald-900 transition-colors"><Icons.Pencil /></button>
                                 
                                 <button 
                                   onClick={(e) => handleRemoveSession(e, period.id, session.id)} 
