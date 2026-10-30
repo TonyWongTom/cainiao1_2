@@ -102,19 +102,19 @@ const PeriodsList: React.FC<PeriodsListProps> = () => {
     startDate: new Date().toISOString().split('T')[0],
     endDate: '',
     courtCost: 0,
-    funderIds: Array.isArray(funderPool) ? funderPool.map(p => p.id) : [],
+    funderIds: [], // 新周期默认所有成员为按次，无包月前集资名单默认为空
     sessions: [],
     playerConfigs: Array.isArray(players) ? players.map(p => ({
       playerId: p.id,
-      type: p.type || PlayerType.PER_SESSION,
-      fee: p.defaultFee ?? (p.type === PlayerType.MONTHLY ? DEFAULT_MONTHLY_FEE : p.type === PlayerType.HALF_MONTHLY ? DEFAULT_HALF_MONTHLY_FEE : DEFAULT_SESSION_FEE)
+      type: PlayerType.PER_SESSION,
+      fee: DEFAULT_SESSION_FEE // ¥25
     })) : []
   };
 
   const [periodFormData, setPeriodFormData] = useState<Partial<Period>>(initialPeriodData);
   const [sessionFormDate, setSessionFormDate] = useState(new Date().toISOString().split('T')[0]);
   const [sessionFormCost, setSessionFormCost] = useState<number | ''>('');
-  const [selectedAttendees, setSelectedAttendees] = useState<{playerId: string, fee: number}[]>([]);
+  const [selectedAttendees, setSelectedAttendees] = useState<{playerId: string, fee: number | ''}[]>([]);
 
   const sortedPeriods = useMemo(() => {
     return (Array.isArray(periods) ? [...periods] : []).sort((a, b) => {
@@ -219,8 +219,26 @@ const PeriodsList: React.FC<PeriodsListProps> = () => {
       alert('请输入周期名称');
       return;
     }
+    const defaultConfigs = (players || []).map(p => ({
+      playerId: p.id,
+      type: PlayerType.PER_SESSION,
+      fee: DEFAULT_SESSION_FEE
+    }));
+
+    const effectiveConfigs = periodFormData.playerConfigs || defaultConfigs;
+    // 遇到集资人员没有包月的情况，也同步到“本期集资名单”里，没有包月的集资人员，当期不计入集资名单
+    const validFunderIds = (periodFormData.funderIds || []).filter(fId => {
+      const cfg = effectiveConfigs.find(c => c.playerId === fId);
+      return cfg ? cfg.type === PlayerType.MONTHLY : false;
+    });
+
     if (editingPeriodId) {
-      setPeriods(prev => prev.map(p => p.id === editingPeriodId ? { ...p, ...periodFormData } as Period : p));
+      setPeriods(prev => prev.map(p => p.id === editingPeriodId ? { 
+        ...p, 
+        ...periodFormData, 
+        playerConfigs: effectiveConfigs,
+        funderIds: validFunderIds 
+      } as Period : p));
       setEditingPeriodId(null);
     } else {
       const period: Period = {
@@ -229,9 +247,9 @@ const PeriodsList: React.FC<PeriodsListProps> = () => {
         startDate: periodFormData.startDate!,
         endDate: periodFormData.endDate || '',
         courtCost: periodFormData.courtCost || 0,
-        funderIds: periodFormData.funderIds || [],
+        funderIds: validFunderIds,
         sessions: [],
-        playerConfigs: periodFormData.playerConfigs || []
+        playerConfigs: effectiveConfigs
       };
       setPeriods(prev => [period, ...prev]);
       setIsAddingPeriod(false);
@@ -272,17 +290,22 @@ const PeriodsList: React.FC<PeriodsListProps> = () => {
       return;
     }
     const extraCost = sessionFormCost === '' ? 0 : (Number(sessionFormCost) || 0);
+    const sanitizedAttendees = selectedAttendees.map(a => ({
+      playerId: a.playerId,
+      fee: a.fee === '' ? 0 : (Number(a.fee) || 0)
+    }));
+
     if (editingSessionId) {
       setPeriods(prev => prev.map(p => p.id === periodId ? {
         ...p,
-        sessions: (p.sessions || []).map(s => s.id === editingSessionId ? { ...s, date: sessionFormDate, sessionCost: extraCost, attendees: selectedAttendees } : s)
+        sessions: (p.sessions || []).map(s => s.id === editingSessionId ? { ...s, date: sessionFormDate, sessionCost: extraCost, attendees: sanitizedAttendees } : s)
       } : p));
     } else {
       const session: Session = {
         id: Date.now().toString(),
         date: sessionFormDate,
         sessionCost: extraCost,
-        attendees: selectedAttendees
+        attendees: sanitizedAttendees
       };
       setPeriods(prev => prev.map(p => {
         if (p.id === periodId) {
@@ -296,12 +319,14 @@ const PeriodsList: React.FC<PeriodsListProps> = () => {
     setEditingSessionId(null);
   };
 
-  const calculatePotentialFee = (player: Player, periodId: string) => {
+  const calculatePotentialFee = (player: Player, periodId: string): number | '' => {
     const attendee = selectedAttendees.find(a => a.playerId === player.id);
-    if (attendee) return attendee.fee;
+    if (attendee && attendee.fee !== undefined && attendee.fee !== null) return attendee.fee;
 
     const currentPeriod = periods.find(p => p.id === periodId);
     const isFunder = currentPeriod?.funderIds?.includes(player.id);
+    if (isFunder) return 0;
+
     const periodConfig = currentPeriod?.playerConfigs?.find(c => c.playerId === player.id);
     const periodType = periodConfig?.type || player.type || PlayerType.PER_SESSION;
     
@@ -313,8 +338,6 @@ const PeriodsList: React.FC<PeriodsListProps> = () => {
         periodFee = periodType === PlayerType.MONTHLY ? DEFAULT_MONTHLY_FEE : periodType === PlayerType.HALF_MONTHLY ? DEFAULT_HALF_MONTHLY_FEE : DEFAULT_SESSION_FEE;
       }
     }
-
-    if (isFunder) return 0;
     
     if (periodType === PlayerType.MONTHLY || periodType === PlayerType.HALF_MONTHLY) {
       const alreadyAttended = (currentPeriod?.sessions || []).some(s => 
@@ -336,8 +359,81 @@ const PeriodsList: React.FC<PeriodsListProps> = () => {
     }
   };
 
-  const updateAttendeeFee = (playerId: string, fee: number) => {
+  const changeAttendeeNature = (playerId: string, targetType: PlayerType, periodId: string) => {
+    // 1. 同步更新当前周期的 playerConfigs 与集资名单
+    const playerObj = players.find(pl => pl.id === playerId);
+    setPeriods(prev => prev.map(p => {
+      if (p.id === periodId) {
+        const configs = p.playerConfigs || [];
+        const idx = configs.findIndex(c => c.playerId === playerId);
+        let defaultConfigFee = 0;
+        if (targetType === PlayerType.PER_SESSION) {
+          defaultConfigFee = DEFAULT_SESSION_FEE;
+        }
+        const newConfig = {
+          playerId,
+          type: targetType,
+          fee: defaultConfigFee
+        };
+        const updatedConfigs = idx > -1
+          ? configs.map(c => c.playerId === playerId ? { ...c, type: targetType } : c)
+          : [...configs, newConfig];
+        
+        let updatedFunderIds = p.funderIds || [];
+        if (playerObj?.isFunder) {
+          if (targetType === PlayerType.MONTHLY) {
+            if (!updatedFunderIds.includes(playerId)) {
+              updatedFunderIds = [...updatedFunderIds, playerId];
+            }
+          } else {
+            // 没有包月的集资人员，当期不计入集资名单
+            updatedFunderIds = updatedFunderIds.filter(id => id !== playerId);
+          }
+        }
+        return { ...p, playerConfigs: updatedConfigs, funderIds: updatedFunderIds };
+      }
+      return p;
+    }));
+
+    // 2. 同步更新出席人员本次实收金额（按答复：切换为包月/包半月时留空手动填写）
+    const currentPeriod = periods.find(p => p.id === periodId);
+    const isFunder = currentPeriod?.funderIds?.includes(playerId);
+
+    setSelectedAttendees(prev => prev.map(a => {
+      if (a.playerId === playerId) {
+        if (isFunder) return { ...a, fee: 0 };
+        if (targetType === PlayerType.MONTHLY || targetType === PlayerType.HALF_MONTHLY) {
+          return { ...a, fee: '' as any };
+        }
+        return { ...a, fee: DEFAULT_SESSION_FEE };
+      }
+      return a;
+    }));
+  };
+
+  const updateAttendeeFee = (playerId: string, fee: number | '') => {
     setSelectedAttendees(prev => prev.map(a => a.playerId === playerId ? { ...a, fee } : a));
+    // 如果录入了具体的包月/半月金额，将金额同步更新至当前周期的配置
+    if (activeSessionPeriod && fee !== '' && !isNaN(Number(fee))) {
+      const numFee = Number(fee);
+      setPeriods(prev => prev.map(p => {
+        if (p.id === activeSessionPeriod) {
+          const configs = p.playerConfigs || [];
+          const idx = configs.findIndex(c => c.playerId === playerId);
+          if (idx > -1) {
+            const currentCfg = configs[idx];
+            if (currentCfg.type === PlayerType.MONTHLY || currentCfg.type === PlayerType.HALF_MONTHLY) {
+              return {
+                ...p,
+                playerConfigs: configs.map(c => c.playerId === playerId ? { ...c, fee: numFee } : c)
+              };
+            }
+          }
+          return p;
+        }
+        return p;
+      }));
+    }
   };
 
   // --- 模态框渲染 ---
@@ -379,17 +475,39 @@ const PeriodsList: React.FC<PeriodsListProps> = () => {
           <div className="bg-amber-50 p-4 rounded-2xl border border-amber-100">
             <p className="text-[10px] font-black text-amber-800 uppercase tracking-widest mb-3 flex justify-between items-center">
               <span>👑 本期集资名单 (预支份额)</span>
-              <span className="text-[8px] bg-white/50 px-2 py-0.5 rounded italic opacity-70">勾选者将平摊基础费</span>
+              <span className="text-[8px] bg-white/50 px-2 py-0.5 rounded italic opacity-70">仅包月集资人计入</span>
             </p>
             <div className="grid grid-cols-3 gap-2">
-      {Array.isArray(funderPool) && funderPool.map(f => {
+              {Array.isArray(funderPool) && funderPool.map(f => {
                 const isSelected = periodFormData.funderIds?.includes(f.id);
+                const currentCfg = periodFormData.playerConfigs?.find(c => c.playerId === f.id);
+                const isMonthly = currentCfg ? currentCfg.type === PlayerType.MONTHLY : false;
                 return (
                   <button key={f.id} type="button" onClick={() => {
                     const current = periodFormData.funderIds || [];
-                    setPeriodFormData({...periodFormData, funderIds: current.includes(f.id) ? current.filter(id => id !== f.id) : [...current, f.id]});
-                  }} className={`text-[10px] py-2.5 rounded-xl border transition-all font-black ${isSelected ? 'bg-amber-400 border-amber-300 ring-1 ring-amber-200 text-white shadow-[0_0_15px_rgba(251,191,36,0.6)]' : 'bg-white border-amber-100 text-amber-200'}`}>
-                    {f.name}
+                    if (current.includes(f.id)) {
+                      setPeriodFormData({
+                        ...periodFormData,
+                        funderIds: current.filter(id => id !== f.id)
+                      });
+                    } else {
+                      // 选中为当期集资人，其当期性质自动同步为包月
+                      const configs = periodFormData.playerConfigs || [];
+                      const idx = configs.findIndex(c => c.playerId === f.id);
+                      const newConfigs = idx > -1
+                        ? configs.map(c => c.playerId === f.id ? { ...c, type: PlayerType.MONTHLY, fee: c.type === PlayerType.MONTHLY ? c.fee : DEFAULT_MONTHLY_FEE } : c)
+                        : [...configs, { playerId: f.id, type: PlayerType.MONTHLY, fee: DEFAULT_MONTHLY_FEE }];
+                      setPeriodFormData({
+                        ...periodFormData,
+                        funderIds: [...current, f.id],
+                        playerConfigs: newConfigs
+                      });
+                    }
+                  }} className={`text-[10px] py-2 px-1 rounded-xl border transition-all font-black flex flex-col items-center justify-center gap-0.5 ${isSelected ? 'bg-amber-400 border-amber-300 ring-1 ring-amber-200 text-white shadow-[0_0_15px_rgba(251,191,36,0.6)]' : 'bg-white border-amber-100 text-amber-700/80 hover:bg-amber-50/50'}`}>
+                    <span>{f.name}</span>
+                    <span className={`text-[8px] px-1 py-0.2 rounded font-normal ${isSelected ? 'text-white/90 font-bold' : isMonthly ? 'text-emerald-600 bg-emerald-50' : 'text-gray-400 bg-gray-50'}`}>
+                      {isSelected ? '👑已计入' : isMonthly ? '已包月' : '未包月'}
+                    </span>
                   </button>
                 )
               })}
@@ -439,7 +557,13 @@ const PeriodsList: React.FC<PeriodsListProps> = () => {
                         ...updates 
                       });
                     }
-                    return { ...prev, playerConfigs: newConfigs };
+
+                    // 没有包月的集资人员，当期不计入集资名单
+                    let newFunderIds = prev.funderIds || [];
+                    if (updates.type && updates.type !== PlayerType.MONTHLY) {
+                      newFunderIds = newFunderIds.filter(id => id !== p.id);
+                    }
+                    return { ...prev, playerConfigs: newConfigs, funderIds: newFunderIds };
                   });
                 };
 
@@ -501,10 +625,25 @@ const PeriodsList: React.FC<PeriodsListProps> = () => {
     setPlayers(prev => [...prev, newPlayer]);
     
     if (activeSessionPeriod) {
-        setSelectedAttendees(prev => {
-            if (prev.find(a => a.playerId === newPlayer.id)) return prev;
-            return [...prev, { playerId: newPlayer.id, fee: calculatePotentialFee(newPlayer, activeSessionPeriod) }];
-        });
+      setPeriods(prev => prev.map(p => {
+        if (p.id === activeSessionPeriod) {
+          const configs = p.playerConfigs || [];
+          return {
+            ...p,
+            playerConfigs: [...configs, {
+              playerId: newPlayer.id,
+              type: newPlayer.type,
+              fee: newPlayer.defaultFee
+            }]
+          };
+        }
+        return p;
+      }));
+
+      setSelectedAttendees(prev => {
+        if (prev.find(a => a.playerId === newPlayer.id)) return prev;
+        return [...prev, { playerId: newPlayer.id, fee: calculatePotentialFee(newPlayer, activeSessionPeriod) }];
+      });
     }
 
     const nextUnmatched = unmatchedPasteNames.slice(1);
@@ -607,7 +746,7 @@ const PeriodsList: React.FC<PeriodsListProps> = () => {
   );
 
   const renderSessionForm = (periodId: string) => {
-    const currentSubtotal = (selectedAttendees || []).reduce((sum, a) => sum + (a.fee || 0), 0);
+    const currentSubtotal = (selectedAttendees || []).reduce((sum, a) => sum + (a.fee === '' ? 0 : Number(a.fee) || 0), 0);
     const currentPeriod = periods.find(p => p.id === periodId);
 
     let formMonthlyCount = 0;
@@ -789,15 +928,96 @@ const PeriodsList: React.FC<PeriodsListProps> = () => {
                   })
                   .map(p => {
                   const isSelected = selectedAttendees.find(a => a.playerId === p.id);
+                  const currentPeriod = periods.find(p => p.id === periodId);
+                  const pConfig = currentPeriod?.playerConfigs?.find(c => c.playerId === p.id);
+                  const pType = pConfig?.type || p.type || PlayerType.PER_SESSION;
                   const displayFee = calculatePotentialFee(p, periodId);
+
                   return (
-                    <button key={p.id} onClick={() => toggleAttendee(p, periodId)} className={`text-[10px] px-3 py-2 rounded-xl font-black transition-all border flex items-center gap-1.5 ${isSelected ? 'bg-emerald-500 border-emerald-400 ring-1 ring-emerald-300 text-white shadow-[0_0_15px_rgba(16,185,129,0.5)]' : 'bg-white border-gray-100 text-gray-400'}`}>
+                    <button 
+                      key={p.id} 
+                      onClick={() => toggleAttendee(p, periodId)} 
+                      className={`text-[10px] px-2.5 py-1.5 rounded-xl font-black transition-all border flex items-center gap-1.5 ${
+                        isSelected 
+                          ? 'bg-emerald-500 border-emerald-400 ring-1 ring-emerald-300 text-white shadow-[0_0_15px_rgba(16,185,129,0.5)]' 
+                          : 'bg-white border-gray-100 text-gray-700 hover:bg-gray-50'
+                      }`}
+                    >
                       <span>{p.name}</span>
-                      <span className={`text-[8px] opacity-70 ${isSelected ? 'text-white' : 'text-gray-400'}`}>{displayFee === 0 ? '0' : `¥${displayFee}`}</span>
+                      <span className={`text-[8px] px-1 py-0.2 rounded font-black ${
+                        isSelected
+                          ? 'bg-white/20 text-white'
+                          : pType === PlayerType.MONTHLY 
+                            ? 'bg-purple-100 text-purple-700' 
+                            : pType === PlayerType.HALF_MONTHLY 
+                              ? 'bg-blue-100 text-blue-700' 
+                              : 'bg-emerald-100 text-emerald-700'
+                      }`}>
+                        {pType === PlayerType.MONTHLY ? '包月' : pType === PlayerType.HALF_MONTHLY ? '半月' : '按次'}
+                      </span>
+                      <span className={`text-[8px] opacity-70 ${isSelected ? 'text-white' : 'text-gray-400'}`}>
+                        {displayFee === '' ? '手动' : (displayFee === 0 ? '0' : `¥${displayFee}`)}
+                      </span>
                     </button>
                   );
                 })}
               </div>
+
+              {/* 已选出席成员与本期性质快捷切换（即时同步至本期人员配置） */}
+              {selectedAttendees.length > 0 && (
+                <div className="mt-2.5 p-3 bg-emerald-500/10 rounded-2xl border border-emerald-400/30">
+                  <div className="flex justify-between items-center mb-2">
+                    <span className="text-[10px] font-black text-emerald-950 uppercase tracking-wider">
+                      已选出席成员 (点选切换本期性质并同步):
+                    </span>
+                    <span className="text-[9px] text-emerald-700 font-bold">
+                      转包月费用留空
+                    </span>
+                  </div>
+                  <div className="space-y-1.5 max-h-36 overflow-y-auto pr-1">
+                    {selectedAttendees.map(a => {
+                      const pl = players.find(p => p.id === a.playerId);
+                      const currentPeriod = periods.find(p => p.id === periodId);
+                      const cfg = currentPeriod?.playerConfigs?.find(c => c.playerId === a.playerId);
+                      const curType = cfg?.type || pl?.type || PlayerType.PER_SESSION;
+
+                      return (
+                        <div key={a.playerId} className="flex justify-between items-center bg-white/90 px-2.5 py-1.5 rounded-xl border border-emerald-100 text-xs shadow-sm">
+                          <span className="font-black text-emerald-950 text-xs">{pl?.name}</span>
+                          <div className="flex items-center gap-1.5">
+                            <div className="flex items-center gap-0.5 bg-gray-100 p-0.5 rounded-lg border border-gray-200">
+                              {[PlayerType.MONTHLY, PlayerType.HALF_MONTHLY, PlayerType.PER_SESSION].map(type => (
+                                <button
+                                  key={type}
+                                  type="button"
+                                  onClick={() => changeAttendeeNature(a.playerId, type, periodId)}
+                                  className={`text-[9px] px-2 py-0.5 rounded-md font-black transition-all ${
+                                    curType === type
+                                      ? (type === PlayerType.MONTHLY ? 'bg-purple-600 text-white shadow-sm' : type === PlayerType.HALF_MONTHLY ? 'bg-blue-600 text-white shadow-sm' : 'bg-emerald-600 text-white shadow-sm')
+                                      : 'text-gray-500 hover:text-gray-900'
+                                  }`}
+                                  title={`切换该成员本期性质为${type}`}
+                                >
+                                  {type === PlayerType.MONTHLY ? '包月' : type === PlayerType.HALF_MONTHLY ? '半月' : '按次'}
+                                </button>
+                              ))}
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => setSelectedAttendees(prev => prev.filter(x => x.playerId !== a.playerId))}
+                              className="text-gray-400 hover:text-red-500 font-black text-xs px-1"
+                              title="移除"
+                            >
+                              ✕
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
               {/* 出席人员分类统计与总数 */}
               <div className="mt-2.5 p-3 bg-white/80 rounded-2xl border border-gray-100 flex flex-wrap items-center justify-between gap-2 text-[10px]">
                 <div className="flex items-center gap-1.5 flex-wrap">
@@ -822,20 +1042,37 @@ const PeriodsList: React.FC<PeriodsListProps> = () => {
 
             {selectedAttendees.length > 0 && (
               <div>
-                <p className="text-[10px] font-black text-gray-400 mb-2 uppercase tracking-widest">第二步：设置实收金额 (¥):</p>
+                <div className="flex justify-between items-center mb-2">
+                  <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">第二步：设置实收金额 (¥):</p>
+                  <span className="text-[9px] text-gray-400 font-bold">临时转包月成员已留空，请填写实收</span>
+                </div>
                 <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
                   {Array.isArray(selectedAttendees) && selectedAttendees.map(attendee => {
                     const player = players.find(p => p.id === attendee.playerId);
+                    const currentPeriod = periods.find(p => p.id === periodId);
+                    const cfg = currentPeriod?.playerConfigs?.find(c => c.playerId === attendee.playerId);
+                    const attendeeType = cfg?.type || player?.type || PlayerType.PER_SESSION;
+
                     return (
                       <div key={attendee.playerId} className="flex justify-between items-center bg-gray-50 p-2 rounded-xl border border-gray-100">
-                        <span className="text-xs font-bold text-gray-700 ml-2">{player?.name}</span>
+                        <div className="flex items-center gap-2 ml-2">
+                          <span className="text-xs font-bold text-gray-700">{player?.name}</span>
+                          <span className={`text-[8px] px-1.5 py-0.5 rounded-md font-black text-white ${
+                            attendeeType === PlayerType.MONTHLY ? 'bg-purple-500' :
+                            attendeeType === PlayerType.HALF_MONTHLY ? 'bg-blue-500' :
+                            'bg-emerald-500'
+                          }`}>
+                            {attendeeType}
+                          </span>
+                        </div>
                         <div className="flex items-center gap-2">
                           <span className="text-[10px] text-gray-400 italic">实收 ¥</span>
                           <input 
                             type="number" 
+                            placeholder={attendee.fee === '' ? '留空填写' : '0.00'}
                             value={attendee.fee === '' as any ? '' : attendee.fee} 
                             onChange={(e) => updateAttendeeFee(attendee.playerId, e.target.value === '' ? '' as any : Number(e.target.value))}
-                            className="w-16 bg-white border border-gray-200 rounded-lg p-1.5 text-xs font-black text-emerald-600 outline-none focus:ring-1 focus:ring-emerald-400"
+                            className="w-20 bg-white border border-gray-200 rounded-lg p-1.5 text-xs font-black text-emerald-600 outline-none focus:ring-1 focus:ring-emerald-400 text-right font-mono" 
                           />
                         </div>
                       </div>
@@ -936,7 +1173,7 @@ const PeriodsList: React.FC<PeriodsListProps> = () => {
                   <div>
                     <div className="flex justify-between items-center mb-2 px-1">
                       <p className="text-[10px] font-black text-emerald-800/80 uppercase tracking-widest">👑 本期集资名单</p>
-                      <button onClick={(e) => { e.stopPropagation(); setEditingPeriodId(period.id); setPeriodFormData({ ...period, playerConfigs: players.map(p => period.playerConfigs?.find(c => c.playerId === p.id) || { playerId: p.id, type: p.type || PlayerType.PER_SESSION, fee: p.defaultFee ?? (p.type === PlayerType.MONTHLY ? DEFAULT_MONTHLY_FEE : p.type === PlayerType.HALF_MONTHLY ? DEFAULT_HALF_MONTHLY_FEE : DEFAULT_SESSION_FEE) }) }); }} className="text-[9px] text-emerald-900 font-black px-2 py-1 bg-white/30 backdrop-blur-md rounded-lg">修改配置</button>
+                      <button onClick={(e) => { e.stopPropagation(); setEditingPeriodId(period.id); setPeriodFormData({ ...period, playerConfigs: players.map(p => period.playerConfigs?.find(c => c.playerId === p.id) || { playerId: p.id, type: PlayerType.PER_SESSION, fee: DEFAULT_SESSION_FEE }) }); }} className="text-[9px] text-emerald-900 font-black px-2 py-1 bg-white/30 backdrop-blur-md rounded-lg">修改配置</button>
                     </div>
                     <div className="flex flex-wrap gap-1.5 p-3 bg-white/20 backdrop-blur-md rounded-2xl border border-white/30 shadow-sm">
                       {Array.isArray(period.funderIds) && period.funderIds.map(fid => (
@@ -1069,7 +1306,23 @@ const PeriodsList: React.FC<PeriodsListProps> = () => {
         })}
       </div>
 
-      <button onClick={() => { setIsAddingPeriod(true); setEditingPeriodId(null); setPeriodFormData(initialPeriodData); }} className="fixed bottom-[110px] right-6 w-14 h-14 bg-emerald-500 text-white rounded-full flex items-center justify-center shadow-[0_0_20px_rgba(16,185,129,0.6)] ring-2 ring-emerald-300 z-50 active:scale-90 transition-transform">
+      <button onClick={() => { 
+        setIsAddingPeriod(true); 
+        setEditingPeriodId(null); 
+        setPeriodFormData({
+          name: '',
+          startDate: new Date().toISOString().split('T')[0],
+          endDate: '',
+          courtCost: 0,
+          funderIds: [],
+          sessions: [],
+          playerConfigs: Array.isArray(players) ? players.map(p => ({
+            playerId: p.id,
+            type: PlayerType.PER_SESSION,
+            fee: DEFAULT_SESSION_FEE
+          })) : []
+        }); 
+      }} className="fixed bottom-[110px] right-6 w-14 h-14 bg-emerald-500 text-white rounded-full flex items-center justify-center shadow-[0_0_20px_rgba(16,185,129,0.6)] ring-2 ring-emerald-300 z-50 active:scale-90 transition-transform">
         <Icons.Plus />
       </button>
 

@@ -13,6 +13,49 @@ const getTypeOrder = (type?: PlayerType) => {
   return 4;
 };
 
+// Helper to categorize attendees by period nature & funder status
+const getParticipantCategoryInfo = (pid: string, period: Period, playersList: Player[]) => {
+  const isPeriodFunder = Array.isArray(period.funderIds) && period.funderIds.includes(pid);
+  const p = playersList.find(item => item.id === pid);
+  const cfg = period.playerConfigs?.find(c => c.playerId === pid);
+  const periodType = cfg?.type || p?.type || PlayerType.PER_SESSION;
+
+  if (isPeriodFunder) {
+    return {
+      order: 0,
+      label: '集资',
+      isFunder: true,
+      colorClass: 'bg-amber-100 text-amber-900 border border-amber-300',
+      icon: '👑'
+    };
+  }
+  if (periodType === PlayerType.MONTHLY) {
+    return {
+      order: 1,
+      label: '包月',
+      isFunder: false,
+      colorClass: 'bg-emerald-100 text-emerald-900 border border-emerald-300',
+      icon: null
+    };
+  }
+  if (periodType === PlayerType.HALF_MONTHLY) {
+    return {
+      order: 2,
+      label: '包半月',
+      isFunder: false,
+      colorClass: 'bg-sky-100 text-sky-900 border border-sky-300',
+      icon: null
+    };
+  }
+  return {
+    order: 3,
+    label: '按次',
+    isFunder: false,
+    colorClass: 'bg-purple-100 text-purple-900 border border-purple-300',
+    icon: null
+  };
+};
+
 interface FinanceReportProps {
   initialPeriodId: string | null;
   onPeriodChange: (id: string) => void;
@@ -202,43 +245,63 @@ const FinanceReport: React.FC<FinanceReportProps> = ({ initialPeriodId, onPeriod
 
                   {/* Participant Detailed Breakdown */}
                   <div>
-                    <p className="text-[10px] font-black text-emerald-800/60 uppercase tracking-widest mb-3 px-1 flex justify-between">
-                      <span>🏸 参与成员明细</span>
-                      <span>{Object.keys(stats.playerBreakdown).length}人出勤</span>
-                    </p>
+                    <div className="flex flex-wrap items-center justify-between gap-1 mb-3 px-1">
+                      <p className="text-[10px] font-black text-emerald-800/60 uppercase tracking-widest flex items-center gap-1.5">
+                        <span>🏸 参与成员明细</span>
+                        <span className="text-[9px] bg-white/40 text-emerald-900 px-1.5 py-0.5 rounded-full font-bold">
+                          {Object.keys(stats.playerBreakdown).length}人出勤
+                        </span>
+                      </p>
+                      <div className="flex items-center gap-1 text-[8px] font-black">
+                        <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-amber-100 text-amber-900 border border-amber-300">👑集资</span>
+                        <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-900 border border-emerald-300">包月</span>
+                        <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-sky-100 text-sky-900 border border-sky-300">包半月</span>
+                        <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-purple-100 text-purple-900 border border-purple-300">按次</span>
+                      </div>
+                    </div>
                     <div className="bg-white/20 backdrop-blur-md rounded-2xl overflow-hidden border border-white/30">
                       <div className="grid grid-cols-3 px-4 py-2 border-b border-white/20 text-[8px] font-black text-emerald-800/60 uppercase tracking-wider">
-                        <span>姓名</span>
+                        <span>姓名 & 性质</span>
                         <span className="text-center">出勤次数</span>
                         <span className="text-right">总实付</span>
                       </div>
                       <div className="divide-y divide-white/20">
                         {Object.entries(stats.playerBreakdown)
                           .sort(([aId, aData], [bId, bData]) => {
-                            const pA = players.find(p => p.id === aId);
-                            const pB = players.find(p => p.id === bId);
-                            const aIsFunder = Boolean(selectedPeriod.funderIds?.includes(aId) || pA?.isFunder);
-                            const bIsFunder = Boolean(selectedPeriod.funderIds?.includes(bId) || pB?.isFunder);
-                            if (aIsFunder !== bIsFunder) {
-                              return aIsFunder ? -1 : 1;
+                            const aCat = getParticipantCategoryInfo(aId, selectedPeriod, players);
+                            const bCat = getParticipantCategoryInfo(bId, selectedPeriod, players);
+                            
+                            // 1. 严格根据 集资人 -> 包月 -> 包半月 -> 按次 的层级排列
+                            if (aCat.order !== bCat.order) {
+                              return aCat.order - bCat.order;
                             }
-                            const aType = selectedPeriod.playerConfigs?.find(c => c.playerId === aId)?.type || pA?.type || PlayerType.PER_SESSION;
-                            const bType = selectedPeriod.playerConfigs?.find(c => c.playerId === bId)?.type || pB?.type || PlayerType.PER_SESSION;
-                            const typeOrderA = getTypeOrder(aType);
-                            const typeOrderB = getTypeOrder(bType);
-                            if (typeOrderA !== typeOrderB) {
-                                return typeOrderA - typeOrderB;
+                            
+                            // 2. 同一层级内，按照参加次数从多到少排列人员
+                            if (bData.count !== aData.count) {
+                              return bData.count - aData.count;
                             }
-                            return bData.count - aData.count;
+                            
+                            // 3. 次数相同按总实付降序
+                            if (bData.totalPaid !== aData.totalPaid) {
+                              return bData.totalPaid - aData.totalPaid;
+                            }
+
+                            // 4. 姓名拼音排序
+                            const nameA = players.find(p => p.id === aId)?.name || '';
+                            const nameB = players.find(p => p.id === bId)?.name || '';
+                            return nameA.localeCompare(nameB, 'zh-CN');
                           })
                           .map(([pid, data]) => {
                             const playerName = players.find(p => p.id === pid)?.name || '未知';
-                            const isFunder = Array.isArray(selectedPeriod.funderIds) && selectedPeriod.funderIds.includes(pid);
+                            const catInfo = getParticipantCategoryInfo(pid, selectedPeriod, players);
                             return (
-                              <div key={pid} className="grid grid-cols-3 px-4 py-3 items-center">
+                              <div key={pid} className="grid grid-cols-3 px-4 py-3 items-center hover:bg-white/10 transition-colors">
                                 <div className="flex items-center gap-1.5 overflow-hidden">
                                   <span className="text-xs font-bold text-emerald-900 truncate">{playerName}</span>
-                                  {isFunder && <span className="text-[8px] bg-amber-500/20 text-amber-800 px-1 rounded font-black shrink-0">👑</span>}
+                                  <span className={`text-[9px] px-1.5 py-0.5 rounded font-black shrink-0 flex items-center gap-0.5 ${catInfo.colorClass}`}>
+                                    {catInfo.icon && <span className="text-[10px] leading-none">{catInfo.icon}</span>}
+                                    <span>{catInfo.label}</span>
+                                  </span>
                                 </div>
                                 <div className="text-center">
                                   <span className="text-xs font-black text-emerald-800 bg-white/20 px-2 py-0.5 rounded-full">{data.count}次</span>
