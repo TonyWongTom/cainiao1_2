@@ -845,17 +845,18 @@ const PlayersList: React.FC<PlayersListProps> = () => {
       </div>
 
       {/* 顶部关联结算周期切换卡片 */}
-      <div className="bg-white/30 backdrop-blur-md p-3.5 rounded-2xl border border-white/40 shadow-sm mb-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-xs font-black text-emerald-950 flex items-center gap-1.5">
-              <span className="text-sm">📅</span> 当前关联周期:
-            </span>
-            {sortedPeriodsDesc.length > 0 ? (
+      <div className="bg-white/30 backdrop-blur-md p-3.5 rounded-2xl border border-white/40 shadow-sm mb-4 space-y-2.5 overflow-hidden">
+        {/* 第一行：当前关联周期及完整下拉选择框 */}
+        <div className="flex items-center gap-2 w-full min-w-0">
+          <span className="text-xs font-black text-emerald-950 flex items-center gap-1.5 shrink-0">
+            <span className="text-sm">📅</span> 当前关联周期:
+          </span>
+          {sortedPeriodsDesc.length > 0 ? (
+            <div className="flex-1 min-w-0">
               <select
                 value={selectedPeriodId}
                 onChange={(e) => setSelectedPeriodId(e.target.value)}
-                className="bg-white border border-emerald-300 text-emerald-950 text-xs font-black rounded-xl px-3 py-1.5 outline-none focus:ring-2 focus:ring-emerald-500 shadow-sm cursor-pointer"
+                className="w-full max-w-full bg-white border border-emerald-300 text-emerald-950 text-xs font-black rounded-xl px-3 py-2 outline-none focus:ring-2 focus:ring-emerald-500 shadow-sm cursor-pointer truncate box-border"
               >
                 {sortedPeriodsDesc.map(p => (
                   <option key={p.id} value={p.id}>
@@ -863,30 +864,33 @@ const PlayersList: React.FC<PlayersListProps> = () => {
                   </option>
                 ))}
               </select>
-            ) : (
-              <span className="text-xs text-gray-500 font-bold bg-white/50 px-2 py-1 rounded-lg">
-                暂无结算周期，人员性质按默认展示
-              </span>
-            )}
-          </div>
-          {activePeriod && (
-            <div className="flex items-center gap-2 text-[10px] font-black bg-white/50 px-3 py-1.5 rounded-xl border border-white/40">
-              <span className="text-emerald-900">本期性质分布:</span>
-              <span className="text-purple-700 bg-purple-50 px-1.5 py-0.5 rounded border border-purple-200">
-                包月 {activePeriodStats.monthly}人
-              </span>
-              {activePeriodStats.half > 0 && (
-                <span className="text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded border border-blue-200">
-                  半月 {activePeriodStats.half}人
-                </span>
-              )}
-              <span className="text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
-                按次 {activePeriodStats.perSession}人
-              </span>
             </div>
+          ) : (
+            <span className="text-xs text-gray-500 font-bold bg-white/50 px-2 py-1 rounded-lg">
+              暂无结算周期，人员性质按默认展示
+            </span>
           )}
         </div>
-        <p className="text-[10px] text-gray-500 font-bold mt-2 flex items-center gap-1">
+
+        {/* 第二行：本期性质分布 */}
+        {activePeriod && (
+          <div className="flex flex-wrap items-center gap-2 text-[10px] font-black bg-white/50 px-3 py-1.5 rounded-xl border border-white/40 w-fit max-w-full">
+            <span className="text-emerald-900 shrink-0">本期性质分布:</span>
+            <span className="text-purple-700 bg-purple-50 px-2 py-0.5 rounded border border-purple-200 shrink-0">
+              包月 {activePeriodStats.monthly}人
+            </span>
+            {activePeriodStats.half > 0 && (
+              <span className="text-blue-700 bg-blue-50 px-2 py-0.5 rounded border border-blue-200 shrink-0">
+                半月 {activePeriodStats.half}人
+              </span>
+            )}
+            <span className="text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 shrink-0">
+              按次 {activePeriodStats.perSession}人
+            </span>
+          </div>
+        )}
+
+        <p className="text-[10px] text-gray-500 font-bold pt-0.5 flex items-center gap-1">
           <span>💡</span> 各周期人员性质与费用独立维护。批量改性质或个人修改将自动同步至当前选定周期及录入记录。
         </p>
       </div>

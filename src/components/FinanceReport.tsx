@@ -23,10 +23,10 @@ const getParticipantCategoryInfo = (pid: string, period: Period, playersList: Pl
   if (isPeriodFunder) {
     return {
       order: 0,
-      label: '集资',
+      label: '包月',
       isFunder: true,
       colorClass: 'bg-amber-100 text-amber-900 border border-amber-300',
-      icon: '👑'
+      icon: null
     };
   }
   if (periodType === PlayerType.MONTHLY) {
@@ -253,15 +253,15 @@ const FinanceReport: React.FC<FinanceReportProps> = ({ initialPeriodId, onPeriod
                         </span>
                       </p>
                       <div className="flex items-center gap-1 text-[8px] font-black">
-                        <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-amber-100 text-amber-900 border border-amber-300">👑集资</span>
+                        <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-amber-100 text-amber-900 border border-amber-300">包月</span>
                         <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-900 border border-emerald-300">包月</span>
                         <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-sky-100 text-sky-900 border border-sky-300">包半月</span>
                         <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-purple-100 text-purple-900 border border-purple-300">按次</span>
                       </div>
                     </div>
                     <div className="bg-white/20 backdrop-blur-md rounded-2xl overflow-hidden border border-white/30">
-                      <div className="grid grid-cols-3 px-4 py-2 border-b border-white/20 text-[8px] font-black text-emerald-800/60 uppercase tracking-wider">
-                        <span>姓名 & 性质</span>
+                      <div className="grid grid-cols-[minmax(0,1fr)_56px_72px] sm:grid-cols-[minmax(0,1fr)_80px_90px] px-3 sm:px-4 py-2 border-b border-white/20 text-[8px] font-black text-emerald-800/60 uppercase tracking-wider">
+                        <span>性质 & 姓名</span>
                         <span className="text-center">出勤次数</span>
                         <span className="text-right">总实付</span>
                       </div>
@@ -295,16 +295,17 @@ const FinanceReport: React.FC<FinanceReportProps> = ({ initialPeriodId, onPeriod
                             const playerName = players.find(p => p.id === pid)?.name || '未知';
                             const catInfo = getParticipantCategoryInfo(pid, selectedPeriod, players);
                             return (
-                              <div key={pid} className="grid grid-cols-3 px-4 py-3 items-center hover:bg-white/10 transition-colors">
-                                <div className="flex items-center gap-1.5 overflow-hidden">
-                                  <span className="text-xs font-bold text-emerald-900 truncate">{playerName}</span>
-                                  <span className={`text-[9px] px-1.5 py-0.5 rounded font-black shrink-0 flex items-center gap-0.5 ${catInfo.colorClass}`}>
-                                    {catInfo.icon && <span className="text-[10px] leading-none">{catInfo.icon}</span>}
-                                    <span>{catInfo.label}</span>
+                              <div key={pid} className="grid grid-cols-[minmax(0,1fr)_56px_72px] sm:grid-cols-[minmax(0,1fr)_80px_90px] px-3 sm:px-4 py-2.5 sm:py-3 items-center hover:bg-white/10 transition-colors">
+                                <div className="flex items-center gap-1.5 min-w-0 pr-1">
+                                  <span className={`text-[9px] px-1.5 py-0.5 rounded font-black shrink-0 flex items-center justify-center leading-none ${catInfo.colorClass}`}>
+                                    {catInfo.label}
+                                  </span>
+                                  <span className="text-xs font-bold text-emerald-950 whitespace-normal break-all leading-tight">
+                                    {playerName}
                                   </span>
                                 </div>
                                 <div className="text-center">
-                                  <span className="text-xs font-black text-emerald-800 bg-white/20 px-2 py-0.5 rounded-full">{data.count}次</span>
+                                  <span className="text-xs font-black text-emerald-800 bg-white/20 px-1.5 sm:px-2 py-0.5 rounded-full">{data.count}次</span>
                                 </div>
                                 <div className="text-right">
                                   <span className="text-xs font-black text-emerald-900">¥{data.totalPaid.toFixed(2)}</span>
