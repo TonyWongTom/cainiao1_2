@@ -15,7 +15,7 @@ interface PlayersListProps {
 }
 
 const PlayersList: React.FC<PlayersListProps> = () => {
-  const { players, setPlayers, periods } = useAppContext();
+  const { players, setPlayers, periods, setNotification } = useAppContext();
 
   const [isAdding, setIsAdding] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -118,7 +118,11 @@ const PlayersList: React.FC<PlayersListProps> = () => {
 
   const handleBatchSave = () => {
     if (batchSelectedPlayerIds.length === 0) {
-      alert('请先输入或选择要统一修改性质的成员');
+      if (setNotification) {
+        setNotification({ message: '请先输入或选择要统一修改性质的成员', type: 'error' });
+      } else {
+        alert('请先输入或选择要统一修改性质的成员');
+      }
       return;
     }
     const finalFee = batchFee === '' ? (
@@ -126,6 +130,7 @@ const PlayersList: React.FC<PlayersListProps> = () => {
       batchTargetType === PlayerType.HALF_MONTHLY ? DEFAULT_HALF_MONTHLY_FEE : DEFAULT_SESSION_FEE
     ) : Number(batchFee);
 
+    let resetCount = 0;
     setPlayers(prev => prev.map(p => {
       if (batchSelectedPlayerIds.includes(p.id)) {
         return {
@@ -134,11 +139,25 @@ const PlayersList: React.FC<PlayersListProps> = () => {
           defaultFee: finalFee
         };
       }
-      return p;
+      // 没有在本次批量修改里的人员，默认成为“按次”的性质
+      // 之前是包月的，批量修改里没有的话，自动变成按次的
+      const wasMonthlyOrHalf = p.type === PlayerType.MONTHLY || p.type === PlayerType.HALF_MONTHLY;
+      if (wasMonthlyOrHalf) {
+        resetCount++;
+      }
+      return {
+        ...p,
+        type: PlayerType.PER_SESSION,
+        // 如果原先是包月/包半月，其单次默认收费自动调整为单次默认费用 DEFAULT_SESSION_FEE
+        defaultFee: wasMonthlyOrHalf ? DEFAULT_SESSION_FEE : (p.defaultFee || DEFAULT_SESSION_FEE)
+      };
     }));
 
     const modifiedCount = batchSelectedPlayerIds.length;
-    alert(`成功将 ${modifiedCount} 位成员的性质统一修改为【${batchTargetType}】！`);
+    const msg = `已更新 ${modifiedCount} 人为【${batchTargetType}】，未在名单中的 ${resetCount} 位原包月成员已自动转为【按次】`;
+    if (setNotification) {
+      setNotification({ message: msg, type: 'success' });
+    }
     setIsBatchEditing(false);
     setBatchInputText('');
     setBatchSelectedPlayerIds([]);
@@ -389,7 +408,7 @@ const PlayersList: React.FC<PlayersListProps> = () => {
           <div className="flex justify-between items-center mb-4">
             <div>
               <h3 className="text-lg font-black text-emerald-900">⚡ 批量修改成员性质</h3>
-              <p className="text-[10px] text-gray-500 font-bold">同时输入或点选多人，一键统一修改性质与收费</p>
+              <p className="text-[10px] text-gray-500 font-bold">选定成员更新为最新性质，未列入者默认转为【按次】（可随时单独修改个人）</p>
             </div>
             <button 
               onClick={() => setIsBatchEditing(false)}
@@ -549,6 +568,18 @@ const PlayersList: React.FC<PlayersListProps> = () => {
                   );
                 })}
               </div>
+            </div>
+
+            {/* 规则说明提示卡片 */}
+            <div className="p-3 bg-emerald-50/80 rounded-2xl border border-emerald-200/70 text-emerald-900 text-xs leading-relaxed">
+              <div className="font-black flex items-center gap-1.5 text-emerald-950 mb-1">
+                <span className="text-sm">📌</span> 批量修改与自动重置规则
+              </div>
+              <ul className="text-[11px] text-emerald-800/90 font-medium space-y-1 list-disc list-inside">
+                <li>选中的 <strong className="font-black text-emerald-950">{batchSelectedPlayerIds.length}</strong> 位成员将更新为【<strong className="font-black text-emerald-950">{batchTargetType}</strong>】</li>
+                <li><strong>未在本次名单中的人员默认成为【按次】</strong>（原为包月/包半月人员若本次未列入，将自动降级为按次）</li>
+                <li className="text-[10px] text-emerald-700/80 font-bold list-none">💡 个性化支持：批量修改后，仍可在成员列表中随时点击单个人员的“编辑”单独修改个人性质。</li>
+              </ul>
             </div>
 
             {/* 底部确认操作 */}
