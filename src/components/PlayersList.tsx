@@ -64,15 +64,41 @@ const PlayersList: React.FC<PlayersListProps> = () => {
   }, [sortedPeriodsDesc]);
 
   const getPlayerPeriodConfig = (player: Player) => {
+    const isFunder = isCurrentlyFunder(player.id);
+    let resolvedType = player.type || PlayerType.PER_SESSION;
+    let resolvedFee: number | undefined = undefined;
+
     if (activePeriod && activePeriod.playerConfigs) {
       const cfg = activePeriod.playerConfigs.find(c => c.playerId === player.id);
       if (cfg) {
-        return { type: cfg.type, fee: cfg.fee };
+        resolvedType = cfg.type;
+        resolvedFee = cfg.fee;
       }
     }
+
+    // 集资人员在当期默认为包月性质
+    if (isFunder && resolvedType !== PlayerType.MONTHLY) {
+      resolvedType = PlayerType.MONTHLY;
+    }
+
+    // 确定金额：如果金额未定义、为0或非数字，采用当前性质的标准默认金额
+    if (resolvedFee === undefined || resolvedFee === null || isNaN(Number(resolvedFee)) || Number(resolvedFee) <= 0) {
+      if (resolvedType === PlayerType.MONTHLY) {
+        // 如果当前周期中其他包月成员有设定金额，取该金额，否则取 DEFAULT_MONTHLY_FEE
+        const periodMonthlyCfg = activePeriod?.playerConfigs?.find(c => c.type === PlayerType.MONTHLY && c.fee > 0);
+        resolvedFee = periodMonthlyCfg ? periodMonthlyCfg.fee : DEFAULT_MONTHLY_FEE;
+      } else if (resolvedType === PlayerType.HALF_MONTHLY) {
+        const periodHalfCfg = activePeriod?.playerConfigs?.find(c => c.type === PlayerType.HALF_MONTHLY && c.fee > 0);
+        resolvedFee = periodHalfCfg ? periodHalfCfg.fee : DEFAULT_HALF_MONTHLY_FEE;
+      } else {
+        const periodSessionCfg = activePeriod?.playerConfigs?.find(c => c.type === PlayerType.PER_SESSION && c.fee > 0);
+        resolvedFee = periodSessionCfg ? periodSessionCfg.fee : (player.defaultFee > 0 ? player.defaultFee : DEFAULT_SESSION_FEE);
+      }
+    }
+
     return {
-      type: player.type || PlayerType.PER_SESSION,
-      fee: player.defaultFee ?? DEFAULT_SESSION_FEE
+      type: resolvedType,
+      fee: Number(resolvedFee)
     };
   };
 
@@ -985,13 +1011,15 @@ const PlayersList: React.FC<PlayersListProps> = () => {
                     </span>
                   ) : null}
                 </div>
-                <div className="text-xs text-gray-500 mt-2 flex items-center gap-3 flex-wrap">
-                  <span className={`px-2 py-1 rounded-lg text-white font-black shadow-lg ring-1 ring-white/50 ${
-                    playerCfg.type === PlayerType.MONTHLY ? 'bg-purple-500 shadow-[0_0_12px_rgba(168,85,247,0.6)]' : 
-                    playerCfg.type === PlayerType.HALF_MONTHLY ? 'bg-blue-500 shadow-[0_0_12px_rgba(59,130,246,0.6)]' : 
-                    'bg-emerald-500 shadow-[0_0_12px_rgba(16,185,129,0.6)]'
-                  }`}>{playerCfg.type}</span>
-                  <span className="font-mono font-black text-gray-700">¥{playerCfg.fee}</span>
+                <div className="text-xs text-gray-500 mt-2 flex items-center gap-2.5 flex-wrap">
+                  <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-white font-black shadow-md ring-1 ring-white/50 ${
+                    playerCfg.type === PlayerType.MONTHLY ? 'bg-purple-500 shadow-[0_0_12px_rgba(168,85,247,0.5)]' : 
+                    playerCfg.type === PlayerType.HALF_MONTHLY ? 'bg-blue-500 shadow-[0_0_12px_rgba(59,130,246,0.5)]' : 
+                    'bg-emerald-500 shadow-[0_0_12px_rgba(16,185,129,0.5)]'
+                  }`}>
+                    <span>{playerCfg.type}</span>
+                    <span className="font-mono font-black text-white/95 text-xs">¥{playerCfg.fee}</span>
+                  </span>
 
                   {/* 快捷切换当前周期性质小按钮 */}
                   <div className="flex items-center gap-1 bg-white/40 p-1 rounded-xl border border-white/50 ml-1">

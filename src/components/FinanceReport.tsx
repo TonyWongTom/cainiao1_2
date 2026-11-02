@@ -1,10 +1,11 @@
 
-import React, { useMemo } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Period, Player, PlayerType } from '../types';
 import { formatMonthDay } from '../utils/dateUtils';
 import { useAppContext } from '../context/AppContext';
 import { FinanceTrendChart } from './FinanceTrendChart';
 import { AttendanceDropOffAlert } from './AttendanceDropOffAlert';
+import { PeriodCompareView } from './PeriodCompareView';
 
 const getTypeOrder = (type?: PlayerType) => {
   if (type === PlayerType.MONTHLY) return 1;
@@ -63,6 +64,7 @@ interface FinanceReportProps {
 
 const FinanceReport: React.FC<FinanceReportProps> = ({ initialPeriodId, onPeriodChange }) => {
   const { players, periods } = useAppContext();
+  const [reportTab, setReportTab] = useState<'single' | 'compare'>('single');
 
   const sortedPeriods = useMemo(() => {
     if (!Array.isArray(periods)) return [];
@@ -133,12 +135,47 @@ const FinanceReport: React.FC<FinanceReportProps> = ({ initialPeriodId, onPeriod
   };
 
   return (
-    <div className="p-4 space-y-6 pb-20">
+    <div className="p-4 space-y-4 pb-20">
       <div className="flex justify-between items-center px-1">
         <h2 className="text-xl font-black text-emerald-900">财务统计报表</h2>
       </div>
 
-      {(Array.isArray(periods) && periods.length > 0) && (
+      {/* 报表顶部模式切换: 单周期分析 vs 双周期对比 */}
+      <div className="flex bg-white/30 backdrop-blur-md p-1 rounded-2xl border border-white/40 shadow-sm">
+        <button
+          type="button"
+          onClick={() => setReportTab('single')}
+          className={`flex-1 py-2 px-3 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-1.5 ${
+            reportTab === 'single'
+              ? 'bg-emerald-500 text-white shadow-[0_0_12px_rgba(16,185,129,0.5)] ring-1 ring-emerald-300'
+              : 'text-emerald-950 hover:bg-white/40'
+          }`}
+        >
+          <span>📊</span> 单周期分析
+        </button>
+        <button
+          type="button"
+          onClick={() => setReportTab('compare')}
+          className={`flex-1 py-2 px-3 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-1.5 ${
+            reportTab === 'compare'
+              ? 'bg-emerald-500 text-white shadow-[0_0_12px_rgba(16,185,129,0.5)] ring-1 ring-emerald-300'
+              : 'text-emerald-950 hover:bg-white/40'
+          }`}
+        >
+          <span>⚖️</span> 双周期对比
+        </button>
+      </div>
+
+      {reportTab === 'compare' ? (
+        <PeriodCompareView
+          periods={periods}
+          players={players}
+          defaultPeriodAId={selectedPeriod?.id}
+          defaultPeriodBId={previousPeriod?.id}
+        />
+      ) : (
+        <>
+          {(Array.isArray(periods) && periods.length > 0) && (
         <div className="bg-white/20 backdrop-blur-md rounded-2xl p-4 border border-white/30">
           <label className="block text-[10px] font-black text-emerald-800/60 uppercase tracking-widest mb-1.5 ml-1">
             选择结算周期
@@ -332,6 +369,8 @@ const FinanceReport: React.FC<FinanceReportProps> = ({ initialPeriodId, onPeriod
             );
           })()}
         </div>
+      )}
+        </>
       )}
     </div>
   );

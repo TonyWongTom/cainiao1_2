@@ -1,6 +1,6 @@
 {
-  "summary":  "实现人员性质按周期关联、在“人员”页面增加周期选择下拉框、并在“录入记录”第一步选择出席成员时提供性质快捷切换与双向同步当期人员性质的完整实施方案。",
-  "updatedAt":  "2026-10-30T10:31:18.022467197Z",
-  "requestFeedback":  true,
-  "userFacing":  true
+  "summary": "Implementation plan for dual-period comparison view in FinanceReport and period fee display in PlayersList",
+  "updatedAt": "2026-11-02T15:05:33.994842930Z",
+  "requestFeedback": true,
+  "userFacing": true
 }
