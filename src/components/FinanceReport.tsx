@@ -145,7 +145,7 @@ const FinanceReport: React.FC<FinanceReportProps> = ({ initialPeriodId, onPeriod
         <button
           type="button"
           onClick={() => setReportTab('single')}
-          className={`flex-1 py-2 px-3 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-1.5 ${
+          className={`flex-1 py-2 px-3 rounded-xl text-xs font-black transition-all duration-200 flex items-center justify-center gap-1.5 active:scale-[0.98] ${
             reportTab === 'single'
               ? 'bg-emerald-500 text-white shadow-[0_0_12px_rgba(16,185,129,0.5)] ring-1 ring-emerald-300'
               : 'text-emerald-950 hover:bg-white/40'
@@ -156,7 +156,7 @@ const FinanceReport: React.FC<FinanceReportProps> = ({ initialPeriodId, onPeriod
         <button
           type="button"
           onClick={() => setReportTab('compare')}
-          className={`flex-1 py-2 px-3 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-1.5 ${
+          className={`flex-1 py-2 px-3 rounded-xl text-xs font-black transition-all duration-200 flex items-center justify-center gap-1.5 active:scale-[0.98] ${
             reportTab === 'compare'
               ? 'bg-emerald-500 text-white shadow-[0_0_12px_rgba(16,185,129,0.5)] ring-1 ring-emerald-300'
               : 'text-emerald-950 hover:bg-white/40'
@@ -166,16 +166,19 @@ const FinanceReport: React.FC<FinanceReportProps> = ({ initialPeriodId, onPeriod
         </button>
       </div>
 
-      {reportTab === 'compare' ? (
-        <PeriodCompareView
-          periods={periods}
-          players={players}
-          defaultPeriodAId={selectedPeriod?.id}
-          defaultPeriodBId={previousPeriod?.id}
-        />
-      ) : (
-        <>
-          {(Array.isArray(periods) && periods.length > 0) && (
+      <div className="relative w-full">
+        {reportTab === 'compare' ? (
+          <div key="compare-view" className="animate-view-fade-in space-y-4">
+            <PeriodCompareView
+              periods={periods}
+              players={players}
+              defaultPeriodAId={selectedPeriod?.id}
+              defaultPeriodBId={previousPeriod?.id}
+            />
+          </div>
+        ) : (
+          <div key="single-view" className="animate-view-fade-in space-y-6">
+            {(Array.isArray(periods) && periods.length > 0) && (
         <div className="bg-white/20 backdrop-blur-md rounded-2xl p-4 border border-white/30">
           <label className="block text-[10px] font-black text-emerald-800/60 uppercase tracking-widest mb-1.5 ml-1">
             选择结算周期
@@ -370,8 +373,9 @@ const FinanceReport: React.FC<FinanceReportProps> = ({ initialPeriodId, onPeriod
           })()}
         </div>
       )}
-        </>
-      )}
+          </div>
+        )}
+      </div>
     </div>
   );
 };

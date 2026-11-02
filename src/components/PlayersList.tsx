@@ -63,6 +63,13 @@ const PlayersList: React.FC<PlayersListProps> = () => {
     return sortedPeriodsDesc.length > 0 ? sortedPeriodsDesc[0] : null;
   }, [sortedPeriodsDesc]);
 
+  const isCurrentlyFunder = (playerId: string) => {
+    if (activePeriod && Array.isArray(activePeriod.funderIds)) {
+      return activePeriod.funderIds.includes(playerId);
+    }
+    return Array.isArray(latestPeriod?.funderIds) && latestPeriod!.funderIds.includes(playerId);
+  };
+
   const getPlayerPeriodConfig = (player: Player) => {
     const isFunder = isCurrentlyFunder(player.id);
     let resolvedType = player.type || PlayerType.PER_SESSION;
@@ -438,13 +445,6 @@ const PlayersList: React.FC<PlayersListProps> = () => {
     } else {
       setConfirmDeleteId(id);
     }
-  };
-
-  const isCurrentlyFunder = (playerId: string) => {
-    if (activePeriod) {
-      return activePeriod.funderIds?.includes(playerId) || false;
-    }
-    return latestPeriod?.funderIds?.includes(playerId) || false;
   };
 
   // --- CSV 功能模块 ---
@@ -997,22 +997,22 @@ const PlayersList: React.FC<PlayersListProps> = () => {
           const playerCfg = getPlayerPeriodConfig(player);
 
           return (
-            <div key={player.id} className={`bg-white/20 backdrop-blur-md p-4 rounded-2xl shadow-sm border flex justify-between items-center transition-all ${activeFunder ? 'border-amber-400 bg-amber-500/10 ring-1 ring-amber-400/20' : 'border-white/30'}`}>
-              <div className="flex-1">
-                <div className="flex items-center gap-2">
-                  <span className="font-black text-emerald-900 text-base">{player.name}</span>
+            <div key={player.id} className={`bg-white/20 backdrop-blur-md p-3.5 sm:p-4 rounded-2xl shadow-sm border flex justify-between items-center gap-2.5 transition-all overflow-hidden ${activeFunder ? 'border-amber-400 bg-amber-500/10 ring-1 ring-amber-400/20' : 'border-white/30'}`}>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="font-black text-emerald-900 text-sm sm:text-base truncate max-w-[130px] xs:max-w-[160px] sm:max-w-none">{player.name}</span>
                   {activeFunder ? (
-                    <span className="text-[9px] bg-amber-500 text-white px-2 py-0.5 rounded-full font-black shadow-[0_0_10px_rgba(245,158,11,0.6)] ring-1 ring-amber-300 flex items-center gap-0.5">
+                    <span className="text-[9px] bg-amber-500 text-white px-2 py-0.5 rounded-full font-black shadow-[0_0_10px_rgba(245,158,11,0.6)] ring-1 ring-amber-300 flex items-center gap-0.5 shrink-0">
                       <span className="text-[11px]">👑</span> 本期集资
                     </span>
                   ) : player.isFunder ? (
-                    <span className="text-[9px] bg-gray-100 text-gray-400 px-1.5 py-0.5 rounded font-black border border-gray-200">
+                    <span className="text-[9px] bg-gray-100 text-gray-400 px-1.5 py-0.5 rounded font-black border border-gray-200 shrink-0">
                       备选
                     </span>
                   ) : null}
                 </div>
-                <div className="text-xs text-gray-500 mt-2 flex items-center gap-2.5 flex-wrap">
-                  <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-white font-black shadow-md ring-1 ring-white/50 ${
+                <div className="text-xs text-gray-500 mt-2 flex items-center gap-2 flex-wrap">
+                  <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-white font-black shadow-md ring-1 ring-white/50 shrink-0 ${
                     playerCfg.type === PlayerType.MONTHLY ? 'bg-purple-500 shadow-[0_0_12px_rgba(168,85,247,0.5)]' : 
                     playerCfg.type === PlayerType.HALF_MONTHLY ? 'bg-blue-500 shadow-[0_0_12px_rgba(59,130,246,0.5)]' : 
                     'bg-emerald-500 shadow-[0_0_12px_rgba(16,185,129,0.5)]'
@@ -1022,7 +1022,7 @@ const PlayersList: React.FC<PlayersListProps> = () => {
                   </span>
 
                   {/* 快捷切换当前周期性质小按钮 */}
-                  <div className="flex items-center gap-1 bg-white/40 p-1 rounded-xl border border-white/50 ml-1">
+                  <div className="flex items-center gap-1 bg-white/40 p-1 rounded-xl border border-white/50 shrink-0">
                     {[PlayerType.MONTHLY, PlayerType.HALF_MONTHLY, PlayerType.PER_SESSION].map(type => (
                       <button
                         key={type}
@@ -1041,15 +1041,15 @@ const PlayersList: React.FC<PlayersListProps> = () => {
                   </div>
                 </div>
               </div>
-              <div className="flex gap-2 items-center">
-                <button type="button" onClick={() => startEdit(player)} className="text-emerald-800 text-xs font-black bg-white/30 backdrop-blur-md border border-white/40 px-3 py-1.5 rounded-lg shadow-sm active:bg-white/40">编辑</button>
+              <div className="flex gap-1.5 items-center shrink-0">
+                <button type="button" onClick={() => startEdit(player)} className="text-emerald-800 text-xs font-black bg-white/30 backdrop-blur-md border border-white/40 px-2.5 sm:px-3 py-1.5 rounded-lg shadow-sm active:bg-white/40">编辑</button>
                 <button 
                   type="button" 
                   onClick={(e) => handleDelete(e, player.id)} 
                   className={`transition-all p-2 rounded-xl flex items-center justify-center ${
                     confirmDeleteId === player.id 
-                      ? 'bg-red-500 text-white w-20' 
-                      : 'bg-red-50 text-red-500 w-10 active:bg-red-100'
+                      ? 'bg-red-500 text-white w-16 sm:w-20' 
+                      : 'bg-red-50 text-red-500 w-9 sm:w-10 active:bg-red-100'
                   }`}
                 >
                   {confirmDeleteId === player.id ? <span className="text-[10px] font-black">确认?</span> : <Icons.Trash />}

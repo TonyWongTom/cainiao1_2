@@ -1,6 +1,5 @@
 import React, { useState, useMemo } from 'react';
 import { Period, Player } from '../types';
-import { formatMonthDay } from '../utils/dateUtils';
 
 interface PeriodCompareViewProps {
   periods: Period[];
@@ -98,7 +97,6 @@ const calculateMetrics = (period: Period | null | undefined): PeriodMetrics | nu
 
 export const PeriodCompareView: React.FC<PeriodCompareViewProps> = ({
   periods,
-  players,
   defaultPeriodAId,
   defaultPeriodBId
 }) => {
@@ -144,7 +142,7 @@ export const PeriodCompareView: React.FC<PeriodCompareViewProps> = ({
 
   if (!Array.isArray(periods) || periods.length < 2) {
     return (
-      <div className="bg-white/20 backdrop-blur-md rounded-3xl p-8 border border-white/30 text-center text-emerald-900">
+      <div className="bg-white/20 backdrop-blur-md rounded-3xl p-8 border border-white/30 text-center text-emerald-900 animate-view-fade-in">
         <div className="text-4xl mb-3">⚖️</div>
         <h3 className="text-sm font-black mb-1">需至少 2 个结算周期进行对比</h3>
         <p className="text-xs text-emerald-800/70 font-medium">当前系统中结算周期数量不足，请先在“结算”模块创建多个结算周期。</p>
@@ -204,10 +202,124 @@ export const PeriodCompareView: React.FC<PeriodCompareViewProps> = ({
     );
   };
 
+  // Structured metrics items for responsive rendering
+  const comparisonItems = metricsA && metricsB ? [
+    {
+      id: 'total-expense',
+      title: '周期总费用',
+      subtitle: '基础场地费 + 单场加支',
+      icon: '💰',
+      valA: `¥${metricsA.totalExpenses.toFixed(2)}`,
+      valB: `¥${metricsB.totalExpenses.toFixed(2)}`,
+      deltaNode: renderDelta(metricsA.totalExpenses, metricsB.totalExpenses, 'currency', 'lower-is-better')
+    },
+    {
+      id: 'court-cost',
+      title: '基础场地包场费',
+      subtitle: '固定底仓包场支出',
+      icon: '🏟️',
+      valA: `¥${metricsA.courtCost.toFixed(2)}`,
+      valB: `¥${metricsB.courtCost.toFixed(2)}`,
+      deltaNode: renderDelta(metricsA.courtCost, metricsB.courtCost, 'currency', 'lower-is-better')
+    },
+    {
+      id: 'session-costs',
+      title: '单场额外加支合计',
+      subtitle: '用球、加时、加场等灵活支出',
+      icon: '🏸',
+      valA: `¥${metricsA.sessionCosts.toFixed(2)}`,
+      valB: `¥${metricsB.sessionCosts.toFixed(2)}`,
+      deltaNode: renderDelta(metricsA.sessionCosts, metricsB.sessionCosts, 'currency', 'lower-is-better')
+    },
+    {
+      id: 'unique-attendees',
+      title: '实际出勤独立人数',
+      subtitle: '周期内去重打球球友数',
+      icon: '👥',
+      valA: `${metricsA.uniqueAttendeesCount} 人`,
+      valB: `${metricsB.uniqueAttendeesCount} 人`,
+      deltaNode: renderDelta(metricsA.uniqueAttendeesCount, metricsB.uniqueAttendeesCount, 'people', 'higher-is-better')
+    },
+    {
+      id: 'total-sessions-attendees',
+      title: '总出勤人次',
+      subtitle: '所有场次到场签到累计人次',
+      icon: '👟',
+      valA: `${metricsA.totalAttendeeSessions} 人次`,
+      valB: `${metricsB.totalAttendeeSessions} 人次`,
+      deltaNode: renderDelta(metricsA.totalAttendeeSessions, metricsB.totalAttendeeSessions, 'times', 'higher-is-better')
+    },
+    {
+      id: 'sessions-count',
+      title: '组织打球总场次',
+      subtitle: '周期内开展羽毛球活动的次数',
+      icon: '📅',
+      valA: `${metricsA.sessionsCount} 场`,
+      valB: `${metricsB.sessionsCount} 场`,
+      deltaNode: renderDelta(metricsA.sessionsCount, metricsB.sessionsCount, 'number', 'higher-is-better')
+    },
+    {
+      id: 'avg-per-session',
+      title: '场均出勤人数',
+      subtitle: '每场羽毛球活动平均到场人数',
+      icon: '📊',
+      valA: `${metricsA.avgAttendeesPerSession.toFixed(1)} 人/场`,
+      valB: `${metricsB.avgAttendeesPerSession.toFixed(1)} 人/场`,
+      deltaNode: renderDelta(metricsA.avgAttendeesPerSession, metricsB.avgAttendeesPerSession, 'number', 'higher-is-better')
+    },
+    {
+      id: 'cost-per-unique',
+      title: '独立出勤人均成本',
+      subtitle: '口径一：总费用 ÷ 独立出勤人数',
+      icon: '🎯',
+      valA: `¥${metricsA.costPerUniquePlayer.toFixed(2)}`,
+      valB: `¥${metricsB.costPerUniquePlayer.toFixed(2)}`,
+      deltaNode: renderDelta(metricsA.costPerUniquePlayer, metricsB.costPerUniquePlayer, 'currency', 'lower-is-better'),
+      highlight: true
+    },
+    {
+      id: 'cost-per-session-attendee',
+      title: '场均人次成本',
+      subtitle: '口径二：总费用 ÷ 总出勤人次',
+      icon: '⏱️',
+      valA: `¥${metricsA.costPerAttendeeSession.toFixed(2)}`,
+      valB: `¥${metricsB.costPerAttendeeSession.toFixed(2)}`,
+      deltaNode: renderDelta(metricsA.costPerAttendeeSession, metricsB.costPerAttendeeSession, 'currency', 'lower-is-better'),
+      highlight: true
+    },
+    {
+      id: 'surplus',
+      title: '财务净余收益/总结余',
+      subtitle: '净总收入 - 基础场地成本',
+      icon: '📈',
+      valA: `¥${metricsA.surplus.toFixed(2)}`,
+      valB: `¥${metricsB.surplus.toFixed(2)}`,
+      deltaNode: renderDelta(metricsA.surplus, metricsB.surplus, 'currency', 'higher-is-better')
+    },
+    {
+      id: 'funder-investment',
+      title: '集资人预付投入 (每人)',
+      subtitle: `A期 ${metricsA.funderCount}人 / B期 ${metricsB.funderCount}人`,
+      icon: '👑',
+      valA: `¥${metricsA.investmentPerFunder.toFixed(2)}`,
+      valB: `¥${metricsB.investmentPerFunder.toFixed(2)}`,
+      deltaNode: renderDelta(metricsA.investmentPerFunder, metricsB.investmentPerFunder, 'currency', 'lower-is-better')
+    },
+    {
+      id: 'funder-refund',
+      title: '集资人期末返款 (每人)',
+      subtitle: '净总收入 ÷ 集资人数',
+      icon: '🎁',
+      valA: `¥${metricsA.refundPerFunder.toFixed(2)}`,
+      valB: `¥${metricsB.refundPerFunder.toFixed(2)}`,
+      deltaNode: renderDelta(metricsA.refundPerFunder, metricsB.refundPerFunder, 'currency', 'higher-is-better')
+    }
+  ] : [];
+
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 animate-tab-content">
       {/* 周期选择与切换卡片 */}
-      <div className="bg-white/30 backdrop-blur-md p-4 rounded-3xl border border-white/40 shadow-sm">
+      <div className="bg-white/30 backdrop-blur-md p-3.5 sm:p-4 rounded-3xl border border-white/40 shadow-sm overflow-hidden">
         <div className="flex items-center justify-between mb-3 px-1">
           <span className="text-xs font-black text-emerald-950 flex items-center gap-1.5">
             <span>⚖️</span> 选择对比结算周期
@@ -215,28 +327,29 @@ export const PeriodCompareView: React.FC<PeriodCompareViewProps> = ({
           <button
             type="button"
             onClick={handleSwap}
-            className="text-[10px] bg-white/50 hover:bg-white text-emerald-900 border border-white/50 px-2.5 py-1 rounded-xl font-black shadow-sm flex items-center gap-1 active:scale-95 transition-all"
+            className="text-[10px] bg-white/60 hover:bg-white text-emerald-900 border border-white/50 px-2.5 py-1 rounded-xl font-black shadow-sm flex items-center gap-1 active:scale-95 transition-all"
             title="对调周期A与周期B"
           >
             <span>⇄</span> 对调比较
           </button>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        {/* 周期选择卡片：在手机端自适应分列与换行 */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 sm:gap-3">
           {/* 周期 A 选择 */}
           <div className="bg-emerald-500/10 p-3 rounded-2xl border border-emerald-300/40">
-            <div className="flex items-center justify-between mb-1.5">
-              <span className="text-[10px] font-black text-emerald-900 uppercase tracking-widest flex items-center gap-1">
+            <div className="flex items-center justify-between mb-1.5 gap-2">
+              <span className="text-[10px] font-black text-emerald-900 uppercase tracking-widest flex items-center gap-1 shrink-0">
                 <span className="w-2 h-2 rounded-full bg-emerald-500"></span> 基准周期 A
               </span>
-              <span className="text-[9px] text-emerald-800 font-bold">
+              <span className="text-[9px] text-emerald-800 font-bold truncate">
                 {periodA?.endDate ? `${periodA.startDate} ~ ${periodA.endDate}` : '进行中'}
               </span>
             </div>
             <select
               value={periodAId}
               onChange={(e) => setPeriodAId(e.target.value)}
-              className="w-full bg-white border border-emerald-300 text-emerald-950 text-xs font-black rounded-xl p-2.5 outline-none focus:ring-2 focus:ring-emerald-500 shadow-sm cursor-pointer truncate"
+              className="w-full bg-white border border-emerald-300 text-emerald-950 text-xs font-black rounded-xl p-2.5 outline-none focus:ring-2 focus:ring-emerald-500 shadow-sm cursor-pointer truncate box-border"
             >
               {sortedPeriods.map(p => (
                 <option key={p.id} value={p.id} disabled={p.id === periodBId}>
@@ -248,18 +361,18 @@ export const PeriodCompareView: React.FC<PeriodCompareViewProps> = ({
 
           {/* 周期 B 选择 */}
           <div className="bg-blue-500/10 p-3 rounded-2xl border border-blue-300/40">
-            <div className="flex items-center justify-between mb-1.5">
-              <span className="text-[10px] font-black text-blue-900 uppercase tracking-widest flex items-center gap-1">
+            <div className="flex items-center justify-between mb-1.5 gap-2">
+              <span className="text-[10px] font-black text-blue-900 uppercase tracking-widest flex items-center gap-1 shrink-0">
                 <span className="w-2 h-2 rounded-full bg-blue-500"></span> 对比周期 B
               </span>
-              <span className="text-[9px] text-blue-800 font-bold">
+              <span className="text-[9px] text-blue-800 font-bold truncate">
                 {periodB?.endDate ? `${periodB.startDate} ~ ${periodB.endDate}` : '进行中'}
               </span>
             </div>
             <select
               value={periodBId}
               onChange={(e) => setPeriodBId(e.target.value)}
-              className="w-full bg-white border border-blue-300 text-blue-950 text-xs font-black rounded-xl p-2.5 outline-none focus:ring-2 focus:ring-blue-500 shadow-sm cursor-pointer truncate"
+              className="w-full bg-white border border-blue-300 text-blue-950 text-xs font-black rounded-xl p-2.5 outline-none focus:ring-2 focus:ring-blue-500 shadow-sm cursor-pointer truncate box-border"
             >
               {sortedPeriods.map(p => (
                 <option key={p.id} value={p.id} disabled={p.id === periodAId}>
@@ -273,65 +386,120 @@ export const PeriodCompareView: React.FC<PeriodCompareViewProps> = ({
 
       {metricsA && metricsB && (
         <>
-          {/* 三大关键对比卡片 */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          {/* 三大关键对比卡片：支持在手机端优雅排列与自适应 */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 sm:gap-3">
             {/* 卡片 1: 总费用对比 */}
-            <div className="bg-white/20 backdrop-blur-md p-4 rounded-3xl border border-white/30 shadow-sm">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-[10px] font-black text-emerald-900 uppercase tracking-widest">💰 场地总费用</span>
+            <div className="bg-white/25 backdrop-blur-md p-3.5 sm:p-4 rounded-3xl border border-white/30 shadow-sm transition-all hover:bg-white/30">
+              <div className="flex items-center justify-between mb-2 gap-2">
+                <span className="text-[10px] font-black text-emerald-900 uppercase tracking-widest flex items-center gap-1">
+                  <span>💰</span> 场地总费用
+                </span>
                 {renderDelta(metricsA.totalExpenses, metricsB.totalExpenses, 'currency', 'lower-is-better')}
               </div>
-              <div className="grid grid-cols-2 gap-2 mt-3 pt-2 border-t border-white/20">
-                <div>
-                  <p className="text-[9px] text-emerald-800/70 font-bold truncate">A: {metricsA.name}</p>
-                  <p className="text-base font-black text-emerald-950">¥{metricsA.totalExpenses.toFixed(2)}</p>
+              <div className="grid grid-cols-2 gap-2 mt-3 pt-2.5 border-t border-white/20">
+                <div className="bg-emerald-500/10 p-2 rounded-xl border border-emerald-300/30">
+                  <p className="text-[9px] text-emerald-800 font-bold truncate">A: {metricsA.name}</p>
+                  <p className="text-sm sm:text-base font-black text-emerald-950 font-mono mt-0.5">¥{metricsA.totalExpenses.toFixed(2)}</p>
                 </div>
-                <div className="text-right">
-                  <p className="text-[9px] text-blue-800/70 font-bold truncate">B: {metricsB.name}</p>
-                  <p className="text-base font-black text-blue-950">¥{metricsB.totalExpenses.toFixed(2)}</p>
+                <div className="bg-blue-500/10 p-2 rounded-xl border border-blue-300/30 text-right">
+                  <p className="text-[9px] text-blue-800 font-bold truncate">B: {metricsB.name}</p>
+                  <p className="text-sm sm:text-base font-black text-blue-950 font-mono mt-0.5">¥{metricsB.totalExpenses.toFixed(2)}</p>
                 </div>
               </div>
             </div>
 
             {/* 卡片 2: 出勤人数对比 */}
-            <div className="bg-white/20 backdrop-blur-md p-4 rounded-3xl border border-white/30 shadow-sm">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-[10px] font-black text-emerald-900 uppercase tracking-widest">👥 独立出勤人数</span>
+            <div className="bg-white/25 backdrop-blur-md p-3.5 sm:p-4 rounded-3xl border border-white/30 shadow-sm transition-all hover:bg-white/30">
+              <div className="flex items-center justify-between mb-2 gap-2">
+                <span className="text-[10px] font-black text-emerald-900 uppercase tracking-widest flex items-center gap-1">
+                  <span>👥</span> 独立出勤人数
+                </span>
                 {renderDelta(metricsA.uniqueAttendeesCount, metricsB.uniqueAttendeesCount, 'people', 'higher-is-better')}
               </div>
-              <div className="grid grid-cols-2 gap-2 mt-3 pt-2 border-t border-white/20">
-                <div>
-                  <p className="text-[9px] text-emerald-800/70 font-bold truncate">A: {metricsA.name}</p>
-                  <p className="text-base font-black text-emerald-950">{metricsA.uniqueAttendeesCount} 人</p>
+              <div className="grid grid-cols-2 gap-2 mt-3 pt-2.5 border-t border-white/20">
+                <div className="bg-emerald-500/10 p-2 rounded-xl border border-emerald-300/30">
+                  <p className="text-[9px] text-emerald-800 font-bold truncate">A: {metricsA.name}</p>
+                  <p className="text-sm sm:text-base font-black text-emerald-950 font-mono mt-0.5">{metricsA.uniqueAttendeesCount} 人</p>
                 </div>
-                <div className="text-right">
-                  <p className="text-[9px] text-blue-800/70 font-bold truncate">B: {metricsB.name}</p>
-                  <p className="text-base font-black text-blue-950">{metricsB.uniqueAttendeesCount} 人</p>
+                <div className="bg-blue-500/10 p-2 rounded-xl border border-blue-300/30 text-right">
+                  <p className="text-[9px] text-blue-800 font-bold truncate">B: {metricsB.name}</p>
+                  <p className="text-sm sm:text-base font-black text-blue-950 font-mono mt-0.5">{metricsB.uniqueAttendeesCount} 人</p>
                 </div>
               </div>
             </div>
 
             {/* 卡片 3: 人均成本对比 (独立出勤人均) */}
-            <div className="bg-white/20 backdrop-blur-md p-4 rounded-3xl border border-white/30 shadow-sm">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-[10px] font-black text-emerald-900 uppercase tracking-widest">🎯 独立出勤人均成本</span>
+            <div className="bg-white/25 backdrop-blur-md p-3.5 sm:p-4 rounded-3xl border border-white/30 shadow-sm transition-all hover:bg-white/30">
+              <div className="flex items-center justify-between mb-2 gap-2">
+                <span className="text-[10px] font-black text-emerald-900 uppercase tracking-widest flex items-center gap-1">
+                  <span>🎯</span> 独立人均成本
+                </span>
                 {renderDelta(metricsA.costPerUniquePlayer, metricsB.costPerUniquePlayer, 'currency', 'lower-is-better')}
               </div>
-              <div className="grid grid-cols-2 gap-2 mt-3 pt-2 border-t border-white/20">
-                <div>
-                  <p className="text-[9px] text-emerald-800/70 font-bold truncate">A: {metricsA.name}</p>
-                  <p className="text-base font-black text-emerald-950">¥{metricsA.costPerUniquePlayer.toFixed(2)}</p>
+              <div className="grid grid-cols-2 gap-2 mt-3 pt-2.5 border-t border-white/20">
+                <div className="bg-emerald-500/10 p-2 rounded-xl border border-emerald-300/30">
+                  <p className="text-[9px] text-emerald-800 font-bold truncate">A: {metricsA.name}</p>
+                  <p className="text-sm sm:text-base font-black text-emerald-950 font-mono mt-0.5">¥{metricsA.costPerUniquePlayer.toFixed(2)}</p>
                 </div>
-                <div className="text-right">
-                  <p className="text-[9px] text-blue-800/70 font-bold truncate">B: {metricsB.name}</p>
-                  <p className="text-base font-black text-blue-950">¥{metricsB.costPerUniquePlayer.toFixed(2)}</p>
+                <div className="bg-blue-500/10 p-2 rounded-xl border border-blue-300/30 text-right">
+                  <p className="text-[9px] text-blue-800 font-bold truncate">B: {metricsB.name}</p>
+                  <p className="text-sm sm:text-base font-black text-blue-950 font-mono mt-0.5">¥{metricsB.costPerUniquePlayer.toFixed(2)}</p>
                 </div>
               </div>
             </div>
           </div>
 
-          {/* 综合指标并排对比表 */}
-          <div className="bg-white/20 backdrop-blur-md rounded-3xl overflow-hidden border border-white/30 shadow-sm">
+          {/* 手机端专属卡片式对比列表（防挤压，优雅换行） */}
+          <div className="space-y-2.5 block sm:hidden">
+            <div className="px-1 flex items-center justify-between text-xs font-black text-emerald-950">
+              <span className="flex items-center gap-1">
+                <span>📋</span> 双周期全指标对照 (卡片式)
+              </span>
+              <span className="text-[9px] text-emerald-800/60 font-bold">差额 = A期 - B期</span>
+            </div>
+
+            {comparisonItems.map(item => (
+              <div
+                key={item.id}
+                className={`p-3.5 rounded-2xl border transition-all ${
+                  item.highlight
+                    ? 'bg-amber-500/10 border-amber-300/50 shadow-sm'
+                    : 'bg-white/20 backdrop-blur-md border-white/30 shadow-sm'
+                }`}
+              >
+                {/* 卡片头部：指标标题 + 差额徽章 */}
+                <div className="flex items-center justify-between gap-2 mb-2.5">
+                  <div className="min-w-0 pr-1">
+                    <div className="text-xs font-black text-emerald-950 flex items-center gap-1.5 truncate">
+                      <span>{item.icon}</span>
+                      <span>{item.title}</span>
+                    </div>
+                    {item.subtitle && (
+                      <div className="text-[9px] text-gray-500 font-medium truncate mt-0.5">{item.subtitle}</div>
+                    )}
+                  </div>
+                  <div className="shrink-0">
+                    {item.deltaNode}
+                  </div>
+                </div>
+
+                {/* 两个周期的数据：手机端优雅分栏，绝不挤压 */}
+                <div className="grid grid-cols-2 gap-2 pt-2 border-t border-white/20">
+                  <div className="bg-emerald-500/10 p-2 rounded-xl border border-emerald-300/30">
+                    <p className="text-[9px] text-emerald-800 font-bold truncate">A: {metricsA.name}</p>
+                    <p className="text-sm font-black text-emerald-950 font-mono mt-0.5">{item.valA}</p>
+                  </div>
+                  <div className="bg-blue-500/10 p-2 rounded-xl border border-blue-300/30 text-right">
+                    <p className="text-[9px] text-blue-800 font-bold truncate">B: {metricsB.name}</p>
+                    <p className="text-sm font-black text-blue-950 font-mono mt-0.5">{item.valB}</p>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* 桌面端全指标表格（平板与桌面端完整展示） */}
+          <div className="hidden sm:block bg-white/20 backdrop-blur-md rounded-3xl overflow-hidden border border-white/30 shadow-sm">
             <div className="bg-white/10 px-4 py-3 border-b border-white/20 flex items-center justify-between">
               <span className="text-xs font-black text-emerald-950 flex items-center gap-1.5">
                 <span>📋</span> 双周期全指标对照表
@@ -344,223 +512,74 @@ export const PeriodCompareView: React.FC<PeriodCompareViewProps> = ({
             <div className="divide-y divide-white/15 text-xs">
               {/* 表头 */}
               <div className="grid grid-cols-12 px-4 py-2 bg-white/10 text-[9px] font-black text-emerald-900 uppercase tracking-wider">
-                <div className="col-span-5 sm:col-span-4">对比维度</div>
-                <div className="col-span-2 sm:col-span-3 text-center truncate font-bold text-emerald-800">A: {metricsA.name}</div>
-                <div className="col-span-2 sm:col-span-3 text-center truncate font-bold text-blue-800">B: {metricsB.name}</div>
-                <div className="col-span-3 sm:col-span-2 text-right">差异 (A - B)</div>
+                <div className="col-span-4">对比维度</div>
+                <div className="col-span-3 text-center truncate font-bold text-emerald-800">A: {metricsA.name}</div>
+                <div className="col-span-3 text-center truncate font-bold text-blue-800">B: {metricsB.name}</div>
+                <div className="col-span-2 text-right">差异 (A - B)</div>
               </div>
 
-              {/* 维度 1: 周期场地总费用 */}
-              <div className="grid grid-cols-12 px-4 py-3 items-center hover:bg-white/10 transition-colors">
-                <div className="col-span-5 sm:col-span-4 pr-1">
-                  <div className="font-black text-emerald-950">周期总费用</div>
-                  <div className="text-[9px] text-gray-500 font-medium">基础场地费 + 单场加支</div>
-                </div>
-                <div className="col-span-2 sm:col-span-3 text-center font-black text-emerald-900">
-                  ¥{metricsA.totalExpenses.toFixed(2)}
-                </div>
-                <div className="col-span-2 sm:col-span-3 text-center font-black text-blue-900">
-                  ¥{metricsB.totalExpenses.toFixed(2)}
-                </div>
-                <div className="col-span-3 sm:col-span-2 text-right">
-                  {renderDelta(metricsA.totalExpenses, metricsB.totalExpenses, 'currency', 'lower-is-better')}
-                </div>
-              </div>
-
-              {/* 基础场地费 */}
-              <div className="grid grid-cols-12 px-4 py-2.5 items-center hover:bg-white/10 transition-colors bg-white/5 text-[11px]">
-                <div className="col-span-5 sm:col-span-4 pl-2 text-gray-600 font-bold">
-                  └ 基础场地包场费
-                </div>
-                <div className="col-span-2 sm:col-span-3 text-center text-gray-700 font-mono font-bold">
-                  ¥{metricsA.courtCost.toFixed(2)}
-                </div>
-                <div className="col-span-2 sm:col-span-3 text-center text-gray-700 font-mono font-bold">
-                  ¥{metricsB.courtCost.toFixed(2)}
-                </div>
-                <div className="col-span-3 sm:col-span-2 text-right">
-                  {renderDelta(metricsA.courtCost, metricsB.courtCost, 'currency', 'lower-is-better')}
-                </div>
-              </div>
-
-              {/* 单场额外加支 */}
-              <div className="grid grid-cols-12 px-4 py-2.5 items-center hover:bg-white/10 transition-colors bg-white/5 text-[11px]">
-                <div className="col-span-5 sm:col-span-4 pl-2 text-gray-600 font-bold">
-                  └ 单场额外加支合计
-                </div>
-                <div className="col-span-2 sm:col-span-3 text-center text-gray-700 font-mono font-bold">
-                  ¥{metricsA.sessionCosts.toFixed(2)}
-                </div>
-                <div className="col-span-2 sm:col-span-3 text-center text-gray-700 font-mono font-bold">
-                  ¥{metricsB.sessionCosts.toFixed(2)}
-                </div>
-                <div className="col-span-3 sm:col-span-2 text-right">
-                  {renderDelta(metricsA.sessionCosts, metricsB.sessionCosts, 'currency', 'lower-is-better')}
-                </div>
-              </div>
-
-              {/* 维度 2: 实际出勤独立人数 */}
-              <div className="grid grid-cols-12 px-4 py-3 items-center hover:bg-white/10 transition-colors">
-                <div className="col-span-5 sm:col-span-4 pr-1">
-                  <div className="font-black text-emerald-950">实际出勤独立人数</div>
-                  <div className="text-[9px] text-gray-500 font-medium">周期内去重打球球友数</div>
-                </div>
-                <div className="col-span-2 sm:col-span-3 text-center font-black text-emerald-900">
-                  {metricsA.uniqueAttendeesCount} 人
-                </div>
-                <div className="col-span-2 sm:col-span-3 text-center font-black text-blue-900">
-                  {metricsB.uniqueAttendeesCount} 人
-                </div>
-                <div className="col-span-3 sm:col-span-2 text-right">
-                  {renderDelta(metricsA.uniqueAttendeesCount, metricsB.uniqueAttendeesCount, 'people', 'higher-is-better')}
-                </div>
-              </div>
-
-              {/* 维度 3: 总出勤人次 */}
-              <div className="grid grid-cols-12 px-4 py-3 items-center hover:bg-white/10 transition-colors">
-                <div className="col-span-5 sm:col-span-4 pr-1">
-                  <div className="font-black text-emerald-950">总出勤人次</div>
-                  <div className="text-[9px] text-gray-500 font-medium">所有场次到场签到累计人次</div>
-                </div>
-                <div className="col-span-2 sm:col-span-3 text-center font-black text-emerald-900">
-                  {metricsA.totalAttendeeSessions} 人次
-                </div>
-                <div className="col-span-2 sm:col-span-3 text-center font-black text-blue-900">
-                  {metricsB.totalAttendeeSessions} 人次
-                </div>
-                <div className="col-span-3 sm:col-span-2 text-right">
-                  {renderDelta(metricsA.totalAttendeeSessions, metricsB.totalAttendeeSessions, 'times', 'higher-is-better')}
-                </div>
-              </div>
-
-              {/* 打球场次 */}
-              <div className="grid grid-cols-12 px-4 py-2.5 items-center hover:bg-white/10 transition-colors bg-white/5 text-[11px]">
-                <div className="col-span-5 sm:col-span-4 pl-2 text-gray-600 font-bold">
-                  └ 组织打球总场次
-                </div>
-                <div className="col-span-2 sm:col-span-3 text-center text-gray-700 font-mono font-bold">
-                  {metricsA.sessionsCount} 场
-                </div>
-                <div className="col-span-2 sm:col-span-3 text-center text-gray-700 font-mono font-bold">
-                  {metricsB.sessionsCount} 场
-                </div>
-                <div className="col-span-3 sm:col-span-2 text-right">
-                  {renderDelta(metricsA.sessionsCount, metricsB.sessionsCount, 'number', 'higher-is-better')}
-                </div>
-              </div>
-
-              {/* 维度 4: 独立出勤人均成本 */}
-              <div className="grid grid-cols-12 px-4 py-3 items-center hover:bg-white/10 transition-colors bg-amber-500/5">
-                <div className="col-span-5 sm:col-span-4 pr-1">
-                  <div className="font-black text-amber-950 flex items-center gap-1">
-                    <span>🎯</span> 独立出勤人均成本
+              {comparisonItems.map(item => (
+                <div
+                  key={item.id}
+                  className={`grid grid-cols-12 px-4 py-3 items-center hover:bg-white/10 transition-colors ${
+                    item.highlight ? 'bg-amber-500/5' : ''
+                  }`}
+                >
+                  <div className="col-span-4 pr-1">
+                    <div className="font-black text-emerald-950 flex items-center gap-1">
+                      <span>{item.icon}</span>
+                      <span>{item.title}</span>
+                    </div>
+                    {item.subtitle && (
+                      <div className="text-[9px] text-gray-500 font-medium truncate">{item.subtitle}</div>
+                    )}
                   </div>
-                  <div className="text-[9px] text-amber-800/80 font-medium">口径一：总费用 ÷ 独立出勤人数</div>
-                </div>
-                <div className="col-span-2 sm:col-span-3 text-center font-black text-amber-900 font-mono">
-                  ¥{metricsA.costPerUniquePlayer.toFixed(2)}
-                </div>
-                <div className="col-span-2 sm:col-span-3 text-center font-black text-blue-900 font-mono">
-                  ¥{metricsB.costPerUniquePlayer.toFixed(2)}
-                </div>
-                <div className="col-span-3 sm:col-span-2 text-right">
-                  {renderDelta(metricsA.costPerUniquePlayer, metricsB.costPerUniquePlayer, 'currency', 'lower-is-better')}
-                </div>
-              </div>
-
-              {/* 维度 5: 场均人次成本 */}
-              <div className="grid grid-cols-12 px-4 py-3 items-center hover:bg-white/10 transition-colors bg-amber-500/5">
-                <div className="col-span-5 sm:col-span-4 pr-1">
-                  <div className="font-black text-amber-950 flex items-center gap-1">
-                    <span>⏱️</span> 场均人次成本
+                  <div className="col-span-3 text-center font-black text-emerald-900 font-mono">
+                    {item.valA}
                   </div>
-                  <div className="text-[9px] text-amber-800/80 font-medium">口径二：总费用 ÷ 总出勤人次</div>
+                  <div className="col-span-3 text-center font-black text-blue-900 font-mono">
+                    {item.valB}
+                  </div>
+                  <div className="col-span-2 text-right">
+                    {item.deltaNode}
+                  </div>
                 </div>
-                <div className="col-span-2 sm:col-span-3 text-center font-black text-amber-900 font-mono">
-                  ¥{metricsA.costPerAttendeeSession.toFixed(2)}
-                </div>
-                <div className="col-span-2 sm:col-span-3 text-center font-black text-blue-900 font-mono">
-                  ¥{metricsB.costPerAttendeeSession.toFixed(2)}
-                </div>
-                <div className="col-span-3 sm:col-span-2 text-right">
-                  {renderDelta(metricsA.costPerAttendeeSession, metricsB.costPerAttendeeSession, 'currency', 'lower-is-better')}
-                </div>
-              </div>
-
-              {/* 维度 6: 财务总结余 */}
-              <div className="grid grid-cols-12 px-4 py-3 items-center hover:bg-white/10 transition-colors">
-                <div className="col-span-5 sm:col-span-4 pr-1">
-                  <div className="font-black text-emerald-950">财务净余收益/总结余</div>
-                  <div className="text-[9px] text-gray-500 font-medium">净总收入 - 基础场地成本</div>
-                </div>
-                <div className="col-span-2 sm:col-span-3 text-center font-black font-mono text-emerald-950">
-                  ¥{metricsA.surplus.toFixed(2)}
-                </div>
-                <div className="col-span-2 sm:col-span-3 text-center font-black font-mono text-blue-950">
-                  ¥{metricsB.surplus.toFixed(2)}
-                </div>
-                <div className="col-span-3 sm:col-span-2 text-right">
-                  {renderDelta(metricsA.surplus, metricsB.surplus, 'currency', 'higher-is-better')}
-                </div>
-              </div>
-
-              {/* 维度 7: 集资人预付投入 (每人) */}
-              <div className="grid grid-cols-12 px-4 py-3 items-center hover:bg-white/10 transition-colors">
-                <div className="col-span-5 sm:col-span-4 pr-1">
-                  <div className="font-black text-emerald-950">集资人预付投入 (每人)</div>
-                  <div className="text-[9px] text-gray-500 font-medium">A期 {metricsA.funderCount}人 / B期 {metricsB.funderCount}人</div>
-                </div>
-                <div className="col-span-2 sm:col-span-3 text-center font-black font-mono text-emerald-900">
-                  ¥{metricsA.investmentPerFunder.toFixed(2)}
-                </div>
-                <div className="col-span-2 sm:col-span-3 text-center font-black font-mono text-blue-900">
-                  ¥{metricsB.investmentPerFunder.toFixed(2)}
-                </div>
-                <div className="col-span-3 sm:col-span-2 text-right">
-                  {renderDelta(metricsA.investmentPerFunder, metricsB.investmentPerFunder, 'currency', 'lower-is-better')}
-                </div>
-              </div>
-
-              {/* 维度 8: 集资人期末返款 (每人) */}
-              <div className="grid grid-cols-12 px-4 py-3 items-center hover:bg-white/10 transition-colors">
-                <div className="col-span-5 sm:col-span-4 pr-1">
-                  <div className="font-black text-emerald-950">集资人期末返款 (每人)</div>
-                  <div className="text-[9px] text-gray-500 font-medium">净总收入 ÷ 集资人数</div>
-                </div>
-                <div className="col-span-2 sm:col-span-3 text-center font-black font-mono text-emerald-900">
-                  ¥{metricsA.refundPerFunder.toFixed(2)}
-                </div>
-                <div className="col-span-2 sm:col-span-3 text-center font-black font-mono text-blue-900">
-                  ¥{metricsB.refundPerFunder.toFixed(2)}
-                </div>
-                <div className="col-span-3 sm:col-span-2 text-right">
-                  {renderDelta(metricsA.refundPerFunder, metricsB.refundPerFunder, 'currency', 'higher-is-better')}
-                </div>
-              </div>
+              ))}
             </div>
           </div>
 
-          {/* 差异总结洞察 */}
-          <div className="bg-emerald-500/10 border border-emerald-300/40 rounded-2xl p-4 text-xs text-emerald-950">
-            <h4 className="font-black flex items-center gap-1.5 mb-1.5 text-emerald-900">
-              <span>💡</span> 对比分析简报
+          {/* 财务健康度对比与诊断卡片（独立安全容器，不挤压诊断） */}
+          <div className="bg-emerald-500/10 border border-emerald-300/40 rounded-3xl p-4 text-xs text-emerald-950 shadow-sm">
+            <h4 className="font-black flex items-center gap-1.5 mb-2 text-emerald-900">
+              <span>🩺</span> 双周期财务健康与运营诊断
             </h4>
-            <div className="space-y-1 text-[11px] text-emerald-900/80 leading-relaxed font-medium">
-              <p>
-                • <strong>场地支出变动</strong>：【{metricsA.name}】较【{metricsB.name}】总费用
-                {metricsA.totalExpenses >= metricsB.totalExpenses ? '增加' : '减少'}{' '}
-                <strong className="font-black text-emerald-950">¥{Math.abs(metricsA.totalExpenses - metricsB.totalExpenses).toFixed(2)}</strong>。
+            <div className="space-y-1.5 text-[11px] text-emerald-900/85 leading-relaxed font-medium">
+              <p className="flex items-start gap-1">
+                <span className="shrink-0">•</span>
+                <span>
+                  <strong>场地费用效益</strong>：【{metricsA.name}】总费用为 ¥{metricsA.totalExpenses.toFixed(2)}，较【{metricsB.name}】
+                  {metricsA.totalExpenses >= metricsB.totalExpenses ? '增加' : '降低'}{' '}
+                  <strong className="font-black text-emerald-950">¥{Math.abs(metricsA.totalExpenses - metricsB.totalExpenses).toFixed(2)}</strong>。
+                  {metricsA.sessionCosts > metricsB.sessionCosts ? ' 单场加支有所增加，建议核实额外用球或加场支出。' : ' 额外开销控制平稳。'}
+                </span>
               </p>
-              <p>
-                • <strong>出勤热度变动</strong>：独立出勤人数
-                {metricsA.uniqueAttendeesCount >= metricsB.uniqueAttendeesCount ? '增长' : '减少'}{' '}
-                <strong className="font-black text-emerald-950">{Math.abs(metricsA.uniqueAttendeesCount - metricsB.uniqueAttendeesCount)}人</strong>，
-                出勤总人次{metricsA.totalAttendeeSessions >= metricsB.totalAttendeeSessions ? '增加' : '减少'}{' '}
-                <strong className="font-black text-emerald-950">{Math.abs(metricsA.totalAttendeeSessions - metricsB.totalAttendeeSessions)}人次</strong>。
+              <p className="flex items-start gap-1">
+                <span className="shrink-0">•</span>
+                <span>
+                  <strong>出勤活跃热度</strong>：独立出勤人数
+                  {metricsA.uniqueAttendeesCount >= metricsB.uniqueAttendeesCount ? '增长' : '减少'}{' '}
+                  <strong className="font-black text-emerald-950">{Math.abs(metricsA.uniqueAttendeesCount - metricsB.uniqueAttendeesCount)}人</strong>，
+                  场均出勤从 {metricsB.avgAttendeesPerSession.toFixed(1)} 人/场 变为 {metricsA.avgAttendeesPerSession.toFixed(1)} 人/场
+                  （{metricsA.avgAttendeesPerSession >= metricsB.avgAttendeesPerSession ? '到场率稳步上升' : '单场参与度略有回落'}）。
+                </span>
               </p>
-              <p>
-                • <strong>独立出勤人均摊销</strong>：从【{metricsB.name}】的 ¥{metricsB.costPerUniquePlayer.toFixed(2)}/人 变为【{metricsA.name}】的 ¥{metricsA.costPerUniquePlayer.toFixed(2)}/人
-                （{metricsA.costPerUniquePlayer <= metricsB.costPerUniquePlayer ? '人均成本更加集约划算' : '人均摊销有所上升'}）。
+              <p className="flex items-start gap-1">
+                <span className="shrink-0">•</span>
+                <span>
+                  <strong>人均摊销集约度</strong>：独立人均净成本由 ¥{metricsB.costPerUniquePlayer.toFixed(2)} 变为 ¥{metricsA.costPerUniquePlayer.toFixed(2)}
+                  （{metricsA.costPerUniquePlayer <= metricsB.costPerUniquePlayer ? '人均分摊更优惠，集约度高' : '人均分摊成本略有增加'}），
+                  场均人次成本为 ¥{metricsA.costPerAttendeeSession.toFixed(2)}。
+                </span>
               </p>
             </div>
           </div>
