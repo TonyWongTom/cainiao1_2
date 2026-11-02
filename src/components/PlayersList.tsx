@@ -64,18 +64,20 @@ const PlayersList: React.FC<PlayersListProps> = () => {
   }, [sortedPeriodsDesc]);
 
   const isCurrentlyFunder = (playerId: string) => {
+    if (!playerId) return false;
     if (activePeriod && Array.isArray(activePeriod.funderIds)) {
       return activePeriod.funderIds.includes(playerId);
     }
-    return Array.isArray(latestPeriod?.funderIds) && latestPeriod!.funderIds.includes(playerId);
+    return Boolean(Array.isArray(latestPeriod?.funderIds) && latestPeriod!.funderIds.includes(playerId));
   };
 
   const getPlayerPeriodConfig = (player: Player) => {
+    if (!player) return { type: PlayerType.PER_SESSION, fee: DEFAULT_SESSION_FEE };
     const isFunder = isCurrentlyFunder(player.id);
     let resolvedType = player.type || PlayerType.PER_SESSION;
     let resolvedFee: number | undefined = undefined;
 
-    if (activePeriod && activePeriod.playerConfigs) {
+    if (activePeriod && Array.isArray(activePeriod.playerConfigs)) {
       const cfg = activePeriod.playerConfigs.find(c => c.playerId === player.id);
       if (cfg) {
         resolvedType = cfg.type;
@@ -92,20 +94,20 @@ const PlayersList: React.FC<PlayersListProps> = () => {
     if (resolvedFee === undefined || resolvedFee === null || isNaN(Number(resolvedFee)) || Number(resolvedFee) <= 0) {
       if (resolvedType === PlayerType.MONTHLY) {
         // 如果当前周期中其他包月成员有设定金额，取该金额，否则取 DEFAULT_MONTHLY_FEE
-        const periodMonthlyCfg = activePeriod?.playerConfigs?.find(c => c.type === PlayerType.MONTHLY && c.fee > 0);
-        resolvedFee = periodMonthlyCfg ? periodMonthlyCfg.fee : DEFAULT_MONTHLY_FEE;
+        const periodMonthlyCfg = activePeriod?.playerConfigs?.find(c => c.type === PlayerType.MONTHLY && Number(c.fee) > 0);
+        resolvedFee = periodMonthlyCfg ? periodMonthlyCfg.fee : (player.defaultFee && player.type === PlayerType.MONTHLY ? player.defaultFee : DEFAULT_MONTHLY_FEE);
       } else if (resolvedType === PlayerType.HALF_MONTHLY) {
-        const periodHalfCfg = activePeriod?.playerConfigs?.find(c => c.type === PlayerType.HALF_MONTHLY && c.fee > 0);
-        resolvedFee = periodHalfCfg ? periodHalfCfg.fee : DEFAULT_HALF_MONTHLY_FEE;
+        const periodHalfCfg = activePeriod?.playerConfigs?.find(c => c.type === PlayerType.HALF_MONTHLY && Number(c.fee) > 0);
+        resolvedFee = periodHalfCfg ? periodHalfCfg.fee : (player.defaultFee && player.type === PlayerType.HALF_MONTHLY ? player.defaultFee : DEFAULT_HALF_MONTHLY_FEE);
       } else {
-        const periodSessionCfg = activePeriod?.playerConfigs?.find(c => c.type === PlayerType.PER_SESSION && c.fee > 0);
-        resolvedFee = periodSessionCfg ? periodSessionCfg.fee : (player.defaultFee > 0 ? player.defaultFee : DEFAULT_SESSION_FEE);
+        const periodSessionCfg = activePeriod?.playerConfigs?.find(c => c.type === PlayerType.PER_SESSION && Number(c.fee) > 0);
+        resolvedFee = periodSessionCfg ? periodSessionCfg.fee : (player.defaultFee && player.type === PlayerType.PER_SESSION ? player.defaultFee : DEFAULT_SESSION_FEE);
       }
     }
 
     return {
       type: resolvedType,
-      fee: Number(resolvedFee)
+      fee: Number(resolvedFee) || DEFAULT_SESSION_FEE
     };
   };
 
@@ -566,7 +568,9 @@ const PlayersList: React.FC<PlayersListProps> = () => {
             </select>
           </div>
           <div>
-            <label className="block text-[10px] text-gray-400 mb-1 font-black uppercase tracking-widest">单次(元)</label>
+            <label className="block text-[10px] text-gray-400 mb-1 font-black uppercase tracking-widest">
+              {formData.type === PlayerType.MONTHLY ? '包月费用(元)' : formData.type === PlayerType.HALF_MONTHLY ? '包半月费用(元)' : '单次费用(元)'}
+            </label>
             <input 
               type="number" 
               value={formData.defaultFee === '' as any ? '' : formData.defaultFee} 
@@ -871,18 +875,19 @@ const PlayersList: React.FC<PlayersListProps> = () => {
       </div>
 
       {/* 顶部关联结算周期切换卡片 */}
-      <div className="bg-white/30 backdrop-blur-md p-3.5 rounded-2xl border border-white/40 shadow-sm mb-4 space-y-2.5 overflow-hidden">
+      <div className="bg-white/30 backdrop-blur-md p-3 sm:p-3.5 rounded-2xl border border-white/40 shadow-sm mb-4 space-y-2.5 overflow-hidden w-full max-w-full">
         {/* 第一行：当前关联周期及完整下拉选择框 */}
-        <div className="flex items-center gap-2 w-full min-w-0">
-          <span className="text-xs font-black text-emerald-950 flex items-center gap-1.5 shrink-0">
-            <span className="text-sm">📅</span> 当前关联周期:
-          </span>
+        <div className="flex items-center justify-between gap-2 w-full min-w-0">
+          <div className="text-xs font-black text-emerald-950 flex items-center gap-1.5 shrink-0 whitespace-nowrap">
+            <span className="text-sm">📅</span>
+            <span>当前关联周期:</span>
+          </div>
           {sortedPeriodsDesc.length > 0 ? (
-            <div className="flex-1 min-w-0">
+            <div className="flex-1 min-w-0 relative">
               <select
                 value={selectedPeriodId}
                 onChange={(e) => setSelectedPeriodId(e.target.value)}
-                className="w-full max-w-full bg-white border border-emerald-300 text-emerald-950 text-xs font-black rounded-xl px-3 py-2 outline-none focus:ring-2 focus:ring-emerald-500 shadow-sm cursor-pointer truncate box-border"
+                className="w-full appearance-none bg-white/90 hover:bg-white text-emerald-950 text-xs font-black rounded-xl pl-3 pr-7 py-2 border border-emerald-300/80 shadow-xs outline-none focus:ring-2 focus:ring-emerald-500/30 cursor-pointer truncate transition-all box-border"
               >
                 {sortedPeriodsDesc.map(p => (
                   <option key={p.id} value={p.id}>
@@ -890,27 +895,32 @@ const PlayersList: React.FC<PlayersListProps> = () => {
                   </option>
                 ))}
               </select>
+              <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-2 text-emerald-700">
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 9l-7 7-7-7" />
+                </svg>
+              </div>
             </div>
           ) : (
-            <span className="text-xs text-gray-500 font-bold bg-white/50 px-2 py-1 rounded-lg">
-              暂无结算周期，人员性质按默认展示
+            <span className="text-xs text-gray-500 font-bold bg-white/50 px-2 py-1 rounded-lg shrink-0 whitespace-nowrap">
+              暂无结算周期
             </span>
           )}
         </div>
 
         {/* 第二行：本期性质分布 */}
         {activePeriod && (
-          <div className="flex flex-wrap items-center gap-2 text-[10px] font-black bg-white/50 px-3 py-1.5 rounded-xl border border-white/40 w-fit max-w-full">
-            <span className="text-emerald-900 shrink-0">本期性质分布:</span>
-            <span className="text-purple-700 bg-purple-50 px-2 py-0.5 rounded border border-purple-200 shrink-0">
+          <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 text-[10px] font-black bg-white/50 px-2.5 sm:px-3 py-1.5 rounded-xl border border-white/40 w-fit max-w-full">
+            <span className="text-emerald-900 shrink-0 whitespace-nowrap">本期性质分布:</span>
+            <span className="text-purple-700 bg-purple-50 px-2 py-0.5 rounded border border-purple-200 shrink-0 whitespace-nowrap">
               包月 {activePeriodStats.monthly}人
             </span>
             {activePeriodStats.half > 0 && (
-              <span className="text-blue-700 bg-blue-50 px-2 py-0.5 rounded border border-blue-200 shrink-0">
+              <span className="text-blue-700 bg-blue-50 px-2 py-0.5 rounded border border-blue-200 shrink-0 whitespace-nowrap">
                 半月 {activePeriodStats.half}人
               </span>
             )}
-            <span className="text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 shrink-0">
+            <span className="text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 shrink-0 whitespace-nowrap">
               按次 {activePeriodStats.perSession}人
             </span>
           </div>
@@ -975,7 +985,7 @@ const PlayersList: React.FC<PlayersListProps> = () => {
       )}
 
       <div className="space-y-3">
-        {filteredPlayers.sort((a, b) => {
+        {[...filteredPlayers].sort((a, b) => {
           const aIsFunder = Boolean(isCurrentlyFunder(a.id) || a.isFunder);
           const bIsFunder = Boolean(isCurrentlyFunder(b.id) || b.isFunder);
           if (aIsFunder !== bIsFunder) {
@@ -997,40 +1007,48 @@ const PlayersList: React.FC<PlayersListProps> = () => {
           const playerCfg = getPlayerPeriodConfig(player);
 
           return (
-            <div key={player.id} className={`bg-white/20 backdrop-blur-md p-3.5 sm:p-4 rounded-2xl shadow-sm border flex justify-between items-center gap-2.5 transition-all overflow-hidden ${activeFunder ? 'border-amber-400 bg-amber-500/10 ring-1 ring-amber-400/20' : 'border-white/30'}`}>
+            <div key={player.id} className={`bg-white/20 backdrop-blur-md p-3 sm:p-4 rounded-2xl shadow-sm border flex items-center justify-between gap-2 transition-all w-full overflow-hidden ${activeFunder ? 'border-amber-400 bg-amber-500/10 ring-1 ring-amber-400/20' : 'border-white/30'}`}>
               <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="font-black text-emerald-900 text-sm sm:text-base truncate max-w-[130px] xs:max-w-[160px] sm:max-w-none">{player.name}</span>
+                <div className="flex items-center gap-1.5 flex-nowrap overflow-hidden">
+                  <span className="font-black text-emerald-900 text-sm sm:text-base whitespace-nowrap shrink-0">{player.name}</span>
                   {activeFunder ? (
-                    <span className="text-[9px] bg-amber-500 text-white px-2 py-0.5 rounded-full font-black shadow-[0_0_10px_rgba(245,158,11,0.6)] ring-1 ring-amber-300 flex items-center gap-0.5 shrink-0">
-                      <span className="text-[11px]">👑</span> 本期集资
+                    <span className="text-sm select-none shrink-0" title="集资人员">
+                      👑
                     </span>
                   ) : player.isFunder ? (
-                    <span className="text-[9px] bg-gray-100 text-gray-400 px-1.5 py-0.5 rounded font-black border border-gray-200 shrink-0">
+                    <span className="text-[9px] bg-gray-100 text-gray-400 px-1.5 py-0.5 rounded font-black border border-gray-200 shrink-0 whitespace-nowrap">
                       备选
                     </span>
                   ) : null}
                 </div>
-                <div className="text-xs text-gray-500 mt-2 flex items-center gap-2 flex-wrap">
-                  <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-white font-black shadow-md ring-1 ring-white/50 shrink-0 ${
-                    playerCfg.type === PlayerType.MONTHLY ? 'bg-purple-500 shadow-[0_0_12px_rgba(168,85,247,0.5)]' : 
-                    playerCfg.type === PlayerType.HALF_MONTHLY ? 'bg-blue-500 shadow-[0_0_12px_rgba(59,130,246,0.5)]' : 
-                    'bg-emerald-500 shadow-[0_0_12px_rgba(16,185,129,0.5)]'
+                <div className="text-xs text-gray-500 mt-2 flex items-center gap-1.5 flex-wrap">
+                  <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-xl text-white font-black shadow-md ring-1 ring-white/50 shrink-0 whitespace-nowrap ${
+                    activeFunder
+                      ? 'bg-amber-500 shadow-[0_0_12px_rgba(245,158,11,0.5)] ring-amber-300'
+                      : playerCfg.type === PlayerType.MONTHLY 
+                        ? 'bg-purple-500 shadow-[0_0_12px_rgba(168,85,247,0.5)]' 
+                        : playerCfg.type === PlayerType.HALF_MONTHLY 
+                          ? 'bg-blue-500 shadow-[0_0_12px_rgba(59,130,246,0.5)]' 
+                          : 'bg-emerald-500 shadow-[0_0_12px_rgba(16,185,129,0.5)]'
                   }`}>
                     <span>{playerCfg.type}</span>
                     <span className="font-mono font-black text-white/95 text-xs">¥{playerCfg.fee}</span>
                   </span>
 
                   {/* 快捷切换当前周期性质小按钮 */}
-                  <div className="flex items-center gap-1 bg-white/40 p-1 rounded-xl border border-white/50 shrink-0">
+                  <div className="flex items-center gap-0.5 bg-white/40 p-0.5 sm:p-1 rounded-xl border border-white/50 shrink-0">
                     {[PlayerType.MONTHLY, PlayerType.HALF_MONTHLY, PlayerType.PER_SESSION].map(type => (
                       <button
                         key={type}
                         type="button"
                         onClick={() => handleQuickChangeNature(player.id, type)}
-                        className={`text-[9px] px-2 py-0.5 rounded-lg font-black transition-all ${
+                        className={`text-[9px] px-1.5 sm:px-2 py-0.5 rounded-lg font-black transition-all whitespace-nowrap ${
                           playerCfg.type === type
-                            ? (type === PlayerType.MONTHLY ? 'bg-purple-600 text-white shadow-sm' : type === PlayerType.HALF_MONTHLY ? 'bg-blue-600 text-white shadow-sm' : 'bg-emerald-600 text-white shadow-sm')
+                            ? (type === PlayerType.MONTHLY 
+                                ? (activeFunder ? 'bg-amber-600 text-white shadow-sm' : 'bg-purple-600 text-white shadow-sm') 
+                                : type === PlayerType.HALF_MONTHLY 
+                                  ? 'bg-blue-600 text-white shadow-sm' 
+                                  : 'bg-emerald-600 text-white shadow-sm')
                             : 'text-gray-500 hover:text-emerald-900 hover:bg-white/60'
                         }`}
                         title={`切换为${type}`}
@@ -1042,7 +1060,7 @@ const PlayersList: React.FC<PlayersListProps> = () => {
                 </div>
               </div>
               <div className="flex gap-1.5 items-center shrink-0">
-                <button type="button" onClick={() => startEdit(player)} className="text-emerald-800 text-xs font-black bg-white/30 backdrop-blur-md border border-white/40 px-2.5 sm:px-3 py-1.5 rounded-lg shadow-sm active:bg-white/40">编辑</button>
+                <button type="button" onClick={() => startEdit(player)} className="text-emerald-800 text-xs font-black bg-white/30 backdrop-blur-md border border-white/40 px-2.5 sm:px-3 py-1.5 rounded-lg shadow-sm active:bg-white/40 whitespace-nowrap">编辑</button>
                 <button 
                   type="button" 
                   onClick={(e) => handleDelete(e, player.id)} 

@@ -319,25 +319,35 @@ const PeriodsList: React.FC<PeriodsListProps> = () => {
     setEditingSessionId(null);
   };
 
+  const getPlayerPeriodNatureAndFee = (player: Player, periodId: string) => {
+    const currentPeriod = periods.find(p => p.id === periodId);
+    const isFunder = Boolean(currentPeriod?.funderIds?.includes(player.id));
+    const periodConfig = currentPeriod?.playerConfigs?.find(c => c.playerId === player.id);
+    
+    // 集资人员在当期固定为包月
+    const type = isFunder ? PlayerType.MONTHLY : (periodConfig?.type || player.type || PlayerType.PER_SESSION);
+    
+    let fee = periodConfig?.fee;
+    if (fee === undefined || fee === null) {
+      if (periodConfig?.type && periodConfig.type !== player.type) {
+        fee = periodConfig.type === PlayerType.MONTHLY ? DEFAULT_MONTHLY_FEE : periodConfig.type === PlayerType.HALF_MONTHLY ? DEFAULT_HALF_MONTHLY_FEE : DEFAULT_SESSION_FEE;
+      } else if (player.defaultFee !== undefined && player.defaultFee !== null) {
+        fee = player.defaultFee;
+      } else {
+        fee = type === PlayerType.MONTHLY ? DEFAULT_MONTHLY_FEE : type === PlayerType.HALF_MONTHLY ? DEFAULT_HALF_MONTHLY_FEE : DEFAULT_SESSION_FEE;
+      }
+    }
+
+    return { type, fee, isFunder };
+  };
+
   const calculatePotentialFee = (player: Player, periodId: string): number | '' => {
     const attendee = selectedAttendees.find(a => a.playerId === player.id);
     if (attendee && attendee.fee !== undefined && attendee.fee !== null) return attendee.fee;
 
     const currentPeriod = periods.find(p => p.id === periodId);
-    const isFunder = currentPeriod?.funderIds?.includes(player.id);
+    const { type: periodType, fee: periodFee, isFunder } = getPlayerPeriodNatureAndFee(player, periodId);
     if (isFunder) return 0;
-
-    const periodConfig = currentPeriod?.playerConfigs?.find(c => c.playerId === player.id);
-    const periodType = periodConfig?.type || player.type || PlayerType.PER_SESSION;
-    
-    let periodFee = periodConfig?.fee;
-    if (periodFee === undefined) {
-      if (periodType === player.type && player.defaultFee !== undefined && player.defaultFee !== null) {
-        periodFee = player.defaultFee;
-      } else {
-        periodFee = periodType === PlayerType.MONTHLY ? DEFAULT_MONTHLY_FEE : periodType === PlayerType.HALF_MONTHLY ? DEFAULT_HALF_MONTHLY_FEE : DEFAULT_SESSION_FEE;
-      }
-    }
     
     if (periodType === PlayerType.MONTHLY || periodType === PlayerType.HALF_MONTHLY) {
       const alreadyAttended = (currentPeriod?.sessions || []).some(s => 
@@ -910,15 +920,12 @@ const PeriodsList: React.FC<PeriodsListProps> = () => {
               <div className="flex flex-wrap gap-1.5 p-3 bg-gray-50 rounded-2xl border border-gray-100 max-h-48 overflow-y-auto">
                 {Array.isArray(players) && [...players]
                   .sort((a, b) => {
-                    const currentPeriod = periods.find(p => p.id === periodId);
-                    const aIsFunder = Boolean(currentPeriod?.funderIds?.includes(a.id) || a.isFunder);
-                    const bIsFunder = Boolean(currentPeriod?.funderIds?.includes(b.id) || b.isFunder);
-                    if (aIsFunder !== bIsFunder) {
-                      return aIsFunder ? -1 : 1;
+                    const aInfo = getPlayerPeriodNatureAndFee(a, periodId);
+                    const bInfo = getPlayerPeriodNatureAndFee(b, periodId);
+                    if (aInfo.isFunder !== bInfo.isFunder) {
+                      return aInfo.isFunder ? -1 : 1;
                     }
-                    const aType = currentPeriod?.playerConfigs?.find(c => c.playerId === a.id)?.type || a.type || PlayerType.PER_SESSION;
-                    const bType = currentPeriod?.playerConfigs?.find(c => c.playerId === b.id)?.type || b.type || PlayerType.PER_SESSION;
-                    return getTypeOrder(aType) - getTypeOrder(bType);
+                    return getTypeOrder(aInfo.type) - getTypeOrder(bInfo.type);
                   })
                   .filter(p => {
                     if (!sessionSearchQuery) return true;
@@ -928,14 +935,13 @@ const PeriodsList: React.FC<PeriodsListProps> = () => {
                   })
                   .map(p => {
                   const isSelected = selectedAttendees.find(a => a.playerId === p.id);
-                  const currentPeriod = periods.find(p => p.id === periodId);
-                  const pConfig = currentPeriod?.playerConfigs?.find(c => c.playerId === p.id);
-                  const pType = pConfig?.type || p.type || PlayerType.PER_SESSION;
+                  const { type: pType, fee: configuredFee, isFunder } = getPlayerPeriodNatureAndFee(p, periodId);
                   const displayFee = calculatePotentialFee(p, periodId);
 
                   return (
                     <button 
                       key={p.id} 
+                      type="button"
                       onClick={() => toggleAttendee(p, periodId)} 
                       className={`text-[10px] px-2.5 py-1.5 rounded-xl font-black transition-all border flex items-center gap-1.5 ${
                         isSelected 
@@ -944,18 +950,29 @@ const PeriodsList: React.FC<PeriodsListProps> = () => {
                       }`}
                     >
                       <span>{p.name}</span>
-                      <span className={`text-[8px] px-1 py-0.2 rounded font-black ${
-                        isSelected
-                          ? 'bg-white/20 text-white'
-                          : pType === PlayerType.MONTHLY 
-                            ? 'bg-purple-100 text-purple-700' 
-                            : pType === PlayerType.HALF_MONTHLY 
-                              ? 'bg-blue-100 text-blue-700' 
-                              : 'bg-emerald-100 text-emerald-700'
-                      }`}>
-                        {pType === PlayerType.MONTHLY ? '包月' : pType === PlayerType.HALF_MONTHLY ? '半月' : '按次'}
-                      </span>
-                      <span className={`text-[8px] opacity-70 ${isSelected ? 'text-white' : 'text-gray-400'}`}>
+                      {isFunder ? (
+                        <span className={`text-[8px] px-1 py-0.2 rounded font-black flex items-center gap-0.5 ${
+                          isSelected
+                            ? 'bg-amber-400 text-amber-950 shadow-sm'
+                            : 'bg-amber-100 text-amber-800'
+                        }`}>
+                          <span>👑</span>
+                          <span>包月</span>
+                        </span>
+                      ) : (
+                        <span className={`text-[8px] px-1 py-0.2 rounded font-black ${
+                          isSelected
+                            ? 'bg-white/20 text-white'
+                            : pType === PlayerType.MONTHLY 
+                              ? 'bg-purple-100 text-purple-700' 
+                              : pType === PlayerType.HALF_MONTHLY 
+                                ? 'bg-blue-100 text-blue-700' 
+                                : 'bg-emerald-100 text-emerald-700'
+                        }`}>
+                          {pType === PlayerType.MONTHLY ? '包月' : pType === PlayerType.HALF_MONTHLY ? '半月' : '按次'}
+                        </span>
+                      )}
+                      <span className={`text-[8px] opacity-75 ${isSelected ? 'text-white' : 'text-gray-400'}`}>
                         {displayFee === '' ? '手动' : (displayFee === 0 ? '0' : `¥${displayFee}`)}
                       </span>
                     </button>
@@ -1049,21 +1066,27 @@ const PeriodsList: React.FC<PeriodsListProps> = () => {
                 <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
                   {Array.isArray(selectedAttendees) && selectedAttendees.map(attendee => {
                     const player = players.find(p => p.id === attendee.playerId);
-                    const currentPeriod = periods.find(p => p.id === periodId);
-                    const cfg = currentPeriod?.playerConfigs?.find(c => c.playerId === attendee.playerId);
-                    const attendeeType = cfg?.type || player?.type || PlayerType.PER_SESSION;
+                    if (!player) return null;
+                    const { type: attendeeType, fee: configuredFee, isFunder } = getPlayerPeriodNatureAndFee(player, periodId);
 
                     return (
                       <div key={attendee.playerId} className="flex justify-between items-center bg-gray-50 p-2 rounded-xl border border-gray-100">
                         <div className="flex items-center gap-2 ml-2">
-                          <span className="text-xs font-bold text-gray-700">{player?.name}</span>
-                          <span className={`text-[8px] px-1.5 py-0.5 rounded-md font-black text-white ${
-                            attendeeType === PlayerType.MONTHLY ? 'bg-purple-500' :
-                            attendeeType === PlayerType.HALF_MONTHLY ? 'bg-blue-500' :
-                            'bg-emerald-500'
-                          }`}>
-                            {attendeeType}
-                          </span>
+                          <span className="text-xs font-bold text-gray-700">{player.name}</span>
+                          {isFunder ? (
+                            <span className="text-[8px] px-1.5 py-0.5 rounded-md font-black bg-amber-500 text-white flex items-center gap-0.5">
+                              <span>👑</span>
+                              <span>包月</span>
+                            </span>
+                          ) : (
+                            <span className={`text-[8px] px-1.5 py-0.5 rounded-md font-black text-white ${
+                              attendeeType === PlayerType.MONTHLY ? 'bg-purple-500' :
+                              attendeeType === PlayerType.HALF_MONTHLY ? 'bg-blue-500' :
+                              'bg-emerald-500'
+                            }`}>
+                              {attendeeType}
+                            </span>
+                          )}
                         </div>
                         <div className="flex items-center gap-2">
                           <span className="text-[10px] text-gray-400 italic">实收 ¥</span>

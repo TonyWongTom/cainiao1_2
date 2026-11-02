@@ -553,7 +553,7 @@ export const AttendanceDropOffAlert: React.FC<AttendanceDropOffAlertProps> = ({
                 >
                   {/* Left: Player Identity & Tags */}
                   <div className="flex items-center gap-2 flex-wrap">
-                    <span className="font-black text-xs text-amber-950 tracking-wide">
+                    <span className="font-black text-xs text-amber-950 tracking-wide whitespace-nowrap">
                       {player.name}
                     </span>
 
