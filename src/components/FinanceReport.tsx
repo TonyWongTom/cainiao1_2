@@ -17,9 +17,10 @@ const getTypeOrder = (type?: PlayerType) => {
 // Helper to categorize attendees by period nature & funder status
 const getParticipantCategoryInfo = (pid: string, period: Period, playersList: Player[]) => {
   const isPeriodFunder = Array.isArray(period.funderIds) && period.funderIds.includes(pid);
-  const p = playersList.find(item => item.id === pid);
   const cfg = period.playerConfigs?.find(c => c.playerId === pid);
-  const periodType = cfg?.type || p?.type || PlayerType.PER_SESSION;
+  const periodType = isPeriodFunder
+    ? PlayerType.MONTHLY
+    : (cfg?.type || PlayerType.PER_SESSION);
 
   if (isPeriodFunder) {
     return {

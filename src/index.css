@@ -8,6 +8,38 @@ input, select, textarea {
     font-size: 16px !important; /* 防止 iOS 自动缩放 */
 }
 
+/* 移动端平滑滚动与回弹优化 */
+html, body {
+    scroll-behavior: smooth;
+    -webkit-overflow-scrolling: touch;
+}
+
+.smooth-scroll {
+    scroll-behavior: smooth;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+}
+
+/* 现代化精细平滑滚动条（针对移动端与透明毛玻璃质感背景） */
+.custom-scrollbar {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(16, 185, 129, 0.35) transparent;
+}
+.custom-scrollbar::-webkit-scrollbar {
+    width: 4px;
+    height: 4px;
+}
+.custom-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+    background: rgba(16, 185, 129, 0.3);
+    border-radius: 9999px;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: rgba(16, 185, 129, 0.5);
+}
+
 /* 隐藏滚动条 */
 .no-scrollbar::-webkit-scrollbar { display: none; }
 .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }

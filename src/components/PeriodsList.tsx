@@ -324,17 +324,27 @@ const PeriodsList: React.FC<PeriodsListProps> = () => {
     const isFunder = Boolean(currentPeriod?.funderIds?.includes(player.id));
     const periodConfig = currentPeriod?.playerConfigs?.find(c => c.playerId === player.id);
     
-    // 集资人员在当期固定为包月
-    const type = isFunder ? PlayerType.MONTHLY : (periodConfig?.type || player.type || PlayerType.PER_SESSION);
-    
-    let fee = periodConfig?.fee;
-    if (fee === undefined || fee === null) {
-      if (periodConfig?.type && periodConfig.type !== player.type) {
-        fee = periodConfig.type === PlayerType.MONTHLY ? DEFAULT_MONTHLY_FEE : periodConfig.type === PlayerType.HALF_MONTHLY ? DEFAULT_HALF_MONTHLY_FEE : DEFAULT_SESSION_FEE;
-      } else if (player.defaultFee !== undefined && player.defaultFee !== null) {
-        fee = player.defaultFee;
+    let type = PlayerType.PER_SESSION;
+    let fee = DEFAULT_SESSION_FEE;
+
+    if (periodConfig) {
+      type = periodConfig.type || PlayerType.PER_SESSION;
+      if (periodConfig.fee !== undefined && periodConfig.fee !== null && !isNaN(Number(periodConfig.fee)) && Number(periodConfig.fee) > 0) {
+        fee = Number(periodConfig.fee);
       } else {
-        fee = type === PlayerType.MONTHLY ? DEFAULT_MONTHLY_FEE : type === PlayerType.HALF_MONTHLY ? DEFAULT_HALF_MONTHLY_FEE : DEFAULT_SESSION_FEE;
+        fee = type === PlayerType.MONTHLY
+          ? DEFAULT_MONTHLY_FEE
+          : type === PlayerType.HALF_MONTHLY
+            ? DEFAULT_HALF_MONTHLY_FEE
+            : DEFAULT_SESSION_FEE;
+      }
+    } else {
+      if (isFunder) {
+        type = PlayerType.MONTHLY;
+        fee = DEFAULT_MONTHLY_FEE;
+      } else {
+        type = PlayerType.PER_SESSION;
+        fee = DEFAULT_SESSION_FEE;
       }
     }
 

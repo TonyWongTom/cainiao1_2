@@ -74,29 +74,54 @@ const PlayersList: React.FC<PlayersListProps> = () => {
   const getPlayerPeriodConfig = (player: Player) => {
     if (!player) return { type: PlayerType.PER_SESSION, fee: DEFAULT_SESSION_FEE };
     const isFunder = isCurrentlyFunder(player.id);
-    let resolvedType = player.type || PlayerType.PER_SESSION;
-    let resolvedFee: number | undefined = undefined;
 
-    if (activePeriod && Array.isArray(activePeriod.playerConfigs)) {
-      const cfg = activePeriod.playerConfigs.find(c => c.playerId === player.id);
+    // 如果存在当前关联周期：该周期具备最高优先级且完全独立的配置，绝不从全局可变字段继承，彻底杜绝跨周期污染
+    if (activePeriod) {
+      let resolvedType: PlayerType = PlayerType.PER_SESSION;
+      let resolvedFee: number = DEFAULT_SESSION_FEE;
+
+      const cfg = Array.isArray(activePeriod.playerConfigs)
+        ? activePeriod.playerConfigs.find(c => c.playerId === player.id)
+        : null;
+
       if (cfg) {
-        resolvedType = cfg.type;
-        resolvedFee = cfg.fee;
-      }
-    }
-
-    // 集资人员在当期默认为包月性质
-    if (isFunder && resolvedType !== PlayerType.MONTHLY) {
-      resolvedType = PlayerType.MONTHLY;
-    }
-
-    // 确定金额：每个成员的金额独立维护，绝不从其他相同性质成员处借用或继承
-    if (resolvedFee === undefined || resolvedFee === null || isNaN(Number(resolvedFee)) || Number(resolvedFee) <= 0) {
-      if (resolvedType === player.type && player.defaultFee !== undefined && player.defaultFee !== null && Number(player.defaultFee) > 0) {
-        resolvedFee = Number(player.defaultFee);
+        resolvedType = cfg.type || PlayerType.PER_SESSION;
+        if (cfg.fee !== undefined && cfg.fee !== null && !isNaN(Number(cfg.fee)) && Number(cfg.fee) > 0) {
+          resolvedFee = Number(cfg.fee);
+        } else {
+          resolvedFee = resolvedType === PlayerType.MONTHLY
+            ? DEFAULT_MONTHLY_FEE
+            : resolvedType === PlayerType.HALF_MONTHLY
+              ? DEFAULT_HALF_MONTHLY_FEE
+              : DEFAULT_SESSION_FEE;
+        }
       } else {
-        resolvedFee = resolvedType === PlayerType.MONTHLY ? DEFAULT_MONTHLY_FEE : resolvedType === PlayerType.HALF_MONTHLY ? DEFAULT_HALF_MONTHLY_FEE : DEFAULT_SESSION_FEE;
+        // 如果本周期未单独配置该人员：
+        // 若在当前周期集资名单中，则默认为包月；否则一律默认为按次，独立为标准按次费用，绝不跨周期继承
+        if (isFunder) {
+          resolvedType = PlayerType.MONTHLY;
+          resolvedFee = DEFAULT_MONTHLY_FEE;
+        } else {
+          resolvedType = PlayerType.PER_SESSION;
+          resolvedFee = DEFAULT_SESSION_FEE;
+        }
       }
+
+      return {
+        type: resolvedType,
+        fee: resolvedFee
+      };
+    }
+
+    // 仅当系统没有任何周期时，才使用人员基础全局档案
+    const resolvedType = player.type || PlayerType.PER_SESSION;
+    let resolvedFee = player.defaultFee;
+    if (resolvedFee === undefined || resolvedFee === null || isNaN(Number(resolvedFee)) || Number(resolvedFee) <= 0) {
+      resolvedFee = resolvedType === PlayerType.MONTHLY
+        ? DEFAULT_MONTHLY_FEE
+        : resolvedType === PlayerType.HALF_MONTHLY
+          ? DEFAULT_HALF_MONTHLY_FEE
+          : DEFAULT_SESSION_FEE;
     }
 
     return {
@@ -386,12 +411,17 @@ const PlayersList: React.FC<PlayersListProps> = () => {
           return p;
         }));
 
-        // 全局基础档案只更新姓名和备选集资人身份，绝对不修改全局 type/defaultFee，确保其他周期的独立性
-        setPlayers(prev => prev.map(p => p.id === targetId ? {
-          ...p,
-          name: formData.name!.trim(),
-          isFunder: formData.isFunder !== undefined ? Boolean(formData.isFunder) : p.isFunder
-        } : p));
+        // 全局基础档案只在姓名或备选集资人身份改变时更新，绝对不修改全局 type/defaultFee，确保其他周期的独立性
+        const targetPlayer = players.find(pl => pl.id === targetId);
+        const nameChanged = targetPlayer && formData.name && targetPlayer.name.trim() !== formData.name.trim();
+        const funderChanged = formData.isFunder !== undefined && targetPlayer && Boolean(formData.isFunder) !== Boolean(targetPlayer.isFunder);
+        if (nameChanged || funderChanged) {
+          setPlayers(prev => prev.map(p => p.id === targetId ? {
+            ...p,
+            name: formData.name!.trim(),
+            isFunder: formData.isFunder !== undefined ? Boolean(formData.isFunder) : p.isFunder
+          } : p));
+        }
       } else {
         // 无关联周期时才作为全局基准档案保存
         setPlayers(prev => prev.map(p => p.id === targetId ? {

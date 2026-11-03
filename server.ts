@@ -51,9 +51,17 @@ async function startServer() {
       dbClient = createClient({ url, authToken });
       console.log(`[DB Init] Client created. URL: ${url.substring(0, 15)}... (using forced HTTPS - v1.0.2)`);
       
-      // 非阻塞式连接测试
+      // 非阻塞式连接测试与表结构自动迁移
       dbClient.execute("SELECT 1")
-        .then(() => console.log('✅ Database connection successful (Async Check)'))
+        .then(async () => {
+          console.log('✅ Database connection successful (Async Check)');
+          try {
+            await dbClient!.execute("ALTER TABLE cycles ADD COLUMN playerConfigs TEXT");
+          } catch (e) {}
+          try {
+            await dbClient!.execute("ALTER TABLE member_cycle_configs ADD COLUMN fee REAL");
+          } catch (e) {}
+        })
         .catch(e => console.error(`[DB Init Error] Async check failed: ${e.message}`));
       
     } catch (e: any) {
@@ -158,8 +166,20 @@ async function startServer() {
       
       // Fetch Cycles
       try {
-        const cyclesRes = await dbClient.execute("SELECT id, name, startDate, endDate, courtCost, funderIds FROM cycles");
+        let cyclesRes;
+        try {
+          cyclesRes = await dbClient.execute("SELECT id, name, startDate, endDate, courtCost, funderIds, playerConfigs FROM cycles");
+        } catch {
+          cyclesRes = await dbClient.execute("SELECT id, name, startDate, endDate, courtCost, funderIds FROM cycles");
+        }
+
         for (const row of cyclesRes.rows) {
+          let configs: any[] = [];
+          if (row.playerConfigs) {
+            try {
+              configs = JSON.parse(row.playerConfigs as string);
+            } catch (e) {}
+          }
           cyclesMap[row.id as string] = {
             id: row.id,
             name: row.name,
@@ -168,7 +188,7 @@ async function startServer() {
             courtCost: Number(row.courtCost) || 0,
             funderIds: row.funderIds ? JSON.parse(row.funderIds as string) : [],
             sessions: [],
-            playerConfigs: []
+            playerConfigs: Array.isArray(configs) ? configs : []
           };
         }
       } catch (err: any) {
@@ -197,15 +217,38 @@ async function startServer() {
 
       // Fetch Configs
       try {
-        const confRes = await dbClient.execute("SELECT cycle_id, player_id, type, has_paid_base FROM member_cycle_configs");
+        let confRes;
+        try {
+          confRes = await dbClient.execute("SELECT cycle_id, player_id, type, fee, has_paid_base FROM member_cycle_configs");
+        } catch {
+          confRes = await dbClient.execute("SELECT cycle_id, player_id, type, has_paid_base FROM member_cycle_configs");
+        }
         for (const row of confRes.rows) {
           const cId = row.cycle_id as string;
           if (cyclesMap[cId]) {
-            cyclesMap[cId].playerConfigs.push({
-              playerId: row.player_id,
-              type: row.type,
-              hasPaidBase: Boolean(row.has_paid_base)
-            });
+            const parsedFee = (row.fee !== undefined && row.fee !== null && !isNaN(Number(row.fee)) && Number(row.fee) > 0)
+              ? Number(row.fee)
+              : undefined;
+            const existingIdx = cyclesMap[cId].playerConfigs.findIndex((c: any) => c.playerId === row.player_id);
+            if (existingIdx >= 0) {
+              const currentFee = cyclesMap[cId].playerConfigs[existingIdx].fee;
+              const effectiveFee = (currentFee !== undefined && currentFee !== null && Number(currentFee) > 0)
+                ? Number(currentFee)
+                : parsedFee;
+              cyclesMap[cId].playerConfigs[existingIdx] = {
+                ...cyclesMap[cId].playerConfigs[existingIdx],
+                type: row.type || cyclesMap[cId].playerConfigs[existingIdx].type,
+                fee: effectiveFee,
+                hasPaidBase: Boolean(row.has_paid_base)
+              };
+            } else {
+              cyclesMap[cId].playerConfigs.push({
+                playerId: row.player_id,
+                type: row.type,
+                fee: parsedFee,
+                hasPaidBase: Boolean(row.has_paid_base)
+              });
+            }
           }
         }
       } catch (err: any) {
@@ -227,16 +270,31 @@ async function startServer() {
       const cycleId = data.id;
       if (!cycleId) throw new Error('Missing ID');
 
+      try {
+        await dbClient.execute("ALTER TABLE cycles ADD COLUMN playerConfigs TEXT");
+      } catch (e) {}
+      try {
+        await dbClient.execute("ALTER TABLE member_cycle_configs ADD COLUMN fee REAL");
+      } catch (e) {}
+
       const stmts = [];
       
       stmts.push({
-        sql: `INSERT INTO cycles (id, name, startDate, endDate, courtCost, funderIds) 
-              VALUES (?, ?, ?, ?, ?, ?)
+        sql: `INSERT INTO cycles (id, name, startDate, endDate, courtCost, funderIds, playerConfigs) 
+              VALUES (?, ?, ?, ?, ?, ?, ?)
               ON CONFLICT(id) DO UPDATE SET 
                   name=excluded.name, startDate=excluded.startDate, 
                   endDate=excluded.endDate, courtCost=excluded.courtCost, 
-                  funderIds=excluded.funderIds`,
-        args: [cycleId, data.name || '', data.startDate || '', data.endDate || '', Number(data.courtCost) || 0, JSON.stringify(data.funderIds || [])]
+                  funderIds=excluded.funderIds, playerConfigs=excluded.playerConfigs`,
+        args: [
+          cycleId, 
+          data.name || '', 
+          data.startDate || '', 
+          data.endDate || '', 
+          Number(data.courtCost) || 0, 
+          JSON.stringify(data.funderIds || []),
+          JSON.stringify(data.playerConfigs || [])
+        ]
       });
 
       stmts.push({ sql: "DELETE FROM sessions WHERE cycle_id = ?", args: [cycleId] });
@@ -250,9 +308,9 @@ async function startServer() {
       stmts.push({ sql: "DELETE FROM member_cycle_configs WHERE cycle_id = ?", args: [cycleId] });
       for (const conf of data.playerConfigs || []) {
         stmts.push({
-          sql: `INSERT INTO member_cycle_configs (cycle_id, player_id, type, has_paid_base) 
-                SELECT ?, id, ?, ? FROM members WHERE id = ?`,
-          args: [cycleId, conf.type || '', conf.hasPaidBase ? 1 : 0, conf.playerId]
+          sql: `INSERT INTO member_cycle_configs (cycle_id, player_id, type, fee, has_paid_base) 
+                VALUES (?, ?, ?, ?, ?)`,
+          args: [cycleId, conf.playerId, conf.type || '', Number(conf.fee) || 0, conf.hasPaidBase ? 1 : 0]
         });
       }
 

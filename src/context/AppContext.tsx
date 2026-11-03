@@ -97,78 +97,63 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const setPlayers = (action: React.SetStateAction<Player[]>) => {
-    const nextPlayers = typeof action === 'function' ? action(players) : action;
-    
-    // Process changes
-    const processChanges = async () => {
-      try {
-        // Check for deletions
-        for (const p of players) {
-          if (!nextPlayers.find(np => np.id === p.id)) {
-            await dbService.deletePlayer(p.id);
-          }
-        }
-        
-        // Check for additions/updates
-        for (const p of nextPlayers) {
-          const existing = players.find(ep => ep.id === p.id);
-          if (!existing || JSON.stringify(existing) !== JSON.stringify(p)) {
-            await dbService.savePlayer(p);
-          }
-        }
-        
-        // Update local state ONLY after successful DB operations
-        setPlayersState(nextPlayers);
-        setNotification({ 
-          message: "人员更新成功", 
-          type: 'success' 
-        });
-      } catch (err: any) {
-        console.error("Sync error:", err);
-        setNotification({ 
-          message: "数据保存失败，请检查网络权限: " + err.message, 
-          type: 'error' 
-        });
-      }
-    };
+    setPlayersState(prev => {
+      const nextPlayers = typeof action === 'function' ? (action as any)(prev) : action;
 
-    processChanges();
+      (async () => {
+        try {
+          for (const p of prev) {
+            if (!nextPlayers.find((np: Player) => np.id === p.id)) {
+              await dbService.deletePlayer(p.id);
+            }
+          }
+          for (const p of nextPlayers) {
+            const existing = prev.find(ep => ep.id === p.id);
+            if (!existing || JSON.stringify(existing) !== JSON.stringify(p)) {
+              await dbService.savePlayer(p);
+            }
+          }
+        } catch (err: any) {
+          console.error("Sync error:", err);
+          setNotification({ 
+            message: "数据保存失败，请检查网络: " + err.message, 
+            type: 'error' 
+          });
+        }
+      })();
+
+      return nextPlayers;
+    });
   };
 
   const setPeriods = (action: React.SetStateAction<Period[]>) => {
-    const nextPeriods = typeof action === 'function' ? action(periods) : action;
-    
-    const processChanges = async () => {
-      try {
-        for (const p of nextPeriods) {
-          const existing = periods.find(ep => ep.id === p.id);
-          if (!existing || JSON.stringify(existing) !== JSON.stringify(p)) {
-            await dbService.savePeriod(p);
-          }
-        }
-        
-        for (const p of periods) {
-          if (!nextPeriods.find(np => np.id === p.id)) {
-            await dbService.deletePeriod(p.id);
-          }
-        }
-        
-        // Update local state ONLY after successful DB operations
-        setPeriodsState(nextPeriods);
-        setNotification({ 
-          message: "结算信息更新成功", 
-          type: 'success' 
-        });
-      } catch (err: any) {
-        console.error("Sync error:", err);
-        setNotification({ 
-          message: "数据保存失败，请检查网络权限: " + err.message, 
-          type: 'error' 
-        });
-      }
-    };
+    setPeriodsState(prev => {
+      const nextPeriods = typeof action === 'function' ? (action as any)(prev) : action;
 
-    processChanges();
+      (async () => {
+        try {
+          for (const p of nextPeriods) {
+            const existing = prev.find(ep => ep.id === p.id);
+            if (!existing || JSON.stringify(existing) !== JSON.stringify(p)) {
+              await dbService.savePeriod(p);
+            }
+          }
+          for (const p of prev) {
+            if (!nextPeriods.find((np: Period) => np.id === p.id)) {
+              await dbService.deletePeriod(p.id);
+            }
+          }
+        } catch (err: any) {
+          console.error("Sync error:", err);
+          setNotification({ 
+            message: "结算信息保存失败，请检查网络: " + err.message, 
+            type: 'error' 
+          });
+        }
+      })();
+
+      return nextPeriods;
+    });
   };
 
   return (

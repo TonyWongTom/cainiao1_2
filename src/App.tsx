@@ -121,7 +121,7 @@ const MainApp: React.FC = () => {
         </div>
 
         {/* Main Content */}
-        <main className="flex-1 overflow-y-auto no-scrollbar pb-32">
+        <main className="flex-1 overflow-y-auto smooth-scroll custom-scrollbar pb-32">
           {renderView()}
         </main>
 
