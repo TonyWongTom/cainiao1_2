@@ -90,18 +90,12 @@ const PlayersList: React.FC<PlayersListProps> = () => {
       resolvedType = PlayerType.MONTHLY;
     }
 
-    // 确定金额：如果金额未定义、为0或非数字，采用当前性质的标准默认金额
+    // 确定金额：每个成员的金额独立维护，绝不从其他相同性质成员处借用或继承
     if (resolvedFee === undefined || resolvedFee === null || isNaN(Number(resolvedFee)) || Number(resolvedFee) <= 0) {
-      if (resolvedType === PlayerType.MONTHLY) {
-        // 如果当前周期中其他包月成员有设定金额，取该金额，否则取 DEFAULT_MONTHLY_FEE
-        const periodMonthlyCfg = activePeriod?.playerConfigs?.find(c => c.type === PlayerType.MONTHLY && Number(c.fee) > 0);
-        resolvedFee = periodMonthlyCfg ? periodMonthlyCfg.fee : (player.defaultFee && player.type === PlayerType.MONTHLY ? player.defaultFee : DEFAULT_MONTHLY_FEE);
-      } else if (resolvedType === PlayerType.HALF_MONTHLY) {
-        const periodHalfCfg = activePeriod?.playerConfigs?.find(c => c.type === PlayerType.HALF_MONTHLY && Number(c.fee) > 0);
-        resolvedFee = periodHalfCfg ? periodHalfCfg.fee : (player.defaultFee && player.type === PlayerType.HALF_MONTHLY ? player.defaultFee : DEFAULT_HALF_MONTHLY_FEE);
+      if (resolvedType === player.type && player.defaultFee !== undefined && player.defaultFee !== null && Number(player.defaultFee) > 0) {
+        resolvedFee = Number(player.defaultFee);
       } else {
-        const periodSessionCfg = activePeriod?.playerConfigs?.find(c => c.type === PlayerType.PER_SESSION && Number(c.fee) > 0);
-        resolvedFee = periodSessionCfg ? periodSessionCfg.fee : (player.defaultFee && player.type === PlayerType.PER_SESSION ? player.defaultFee : DEFAULT_SESSION_FEE);
+        resolvedFee = resolvedType === PlayerType.MONTHLY ? DEFAULT_MONTHLY_FEE : resolvedType === PlayerType.HALF_MONTHLY ? DEFAULT_HALF_MONTHLY_FEE : DEFAULT_SESSION_FEE;
       }
     }
 
@@ -253,23 +247,23 @@ const PlayersList: React.FC<PlayersListProps> = () => {
         }
         return p;
       }));
-    }
-
-    // 2. 同时更新基础人员列表
-    setPlayers(prev => prev.map(p => {
-      if (batchSelectedPlayerIds.includes(p.id)) {
+    } else {
+      // 2. 仅当系统完全没有选定任何结算周期时，才写入全局基础人员列表
+      setPlayers(prev => prev.map(p => {
+        if (batchSelectedPlayerIds.includes(p.id)) {
+          return {
+            ...p,
+            type: batchTargetType,
+            defaultFee: finalFee
+          };
+        }
         return {
           ...p,
-          type: batchTargetType,
-          defaultFee: finalFee
+          type: PlayerType.PER_SESSION,
+          defaultFee: DEFAULT_SESSION_FEE
         };
-      }
-      return {
-        ...p,
-        type: PlayerType.PER_SESSION,
-        defaultFee: DEFAULT_SESSION_FEE
-      };
-    }));
+      }));
+    }
 
     const modifiedCount = batchSelectedPlayerIds.length;
     const periodName = activePeriod ? `【${activePeriod.name}】` : '';
@@ -319,8 +313,9 @@ const PlayersList: React.FC<PlayersListProps> = () => {
         }
         return p;
       }));
+    } else {
+      setPlayers(prev => prev.map(p => p.id === playerId ? { ...p, type: targetType, defaultFee: defaultFeeForType } : p));
     }
-    setPlayers(prev => prev.map(p => p.id === playerId ? { ...p, type: targetType, defaultFee: defaultFeeForType } : p));
     if (setNotification) {
       const periodName = activePeriod ? `在本期【${activePeriod.name}】` : '';
       setNotification({ message: `已将该成员${periodName}设为【${targetType}】`, type: 'success' });
@@ -358,9 +353,9 @@ const PlayersList: React.FC<PlayersListProps> = () => {
 
     if (editingId) {
       const targetId = editingId;
-      setPlayers(prev => prev.map(p => p.id === targetId ? { ...p, ...formData, defaultFee: feeVal, name: formData.name!.trim() } as Player : p));
       
       if (activePeriod) {
+        // 1. 如果存在当前关联周期：性质和金额属于该周期独有独立配置，只更新当前周期的 playerConfigs
         setPeriods(prev => prev.map(p => {
           if (p.id === activePeriod.id) {
             const currentConfigs = p.playerConfigs || [];
@@ -390,6 +385,21 @@ const PlayersList: React.FC<PlayersListProps> = () => {
           }
           return p;
         }));
+
+        // 全局基础档案只更新姓名和备选集资人身份，绝对不修改全局 type/defaultFee，确保其他周期的独立性
+        setPlayers(prev => prev.map(p => p.id === targetId ? {
+          ...p,
+          name: formData.name!.trim(),
+          isFunder: formData.isFunder !== undefined ? Boolean(formData.isFunder) : p.isFunder
+        } : p));
+      } else {
+        // 无关联周期时才作为全局基准档案保存
+        setPlayers(prev => prev.map(p => p.id === targetId ? {
+          ...p,
+          ...formData,
+          defaultFee: feeVal,
+          name: formData.name!.trim()
+        } as Player : p));
       }
       setEditingId(null);
     } else {
